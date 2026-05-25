@@ -2,139 +2,93 @@
 
 package com.example.sos.ui.theme
 
+import android.app.AlertDialog
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.keyframes
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.MailOutline
-import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.Shield
-import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material.icons.rounded.VisibilityOff
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.*
+import androidx.compose.ui.text.*
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.input.*
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.sos.auth.AuthFormState
 import com.example.sos.auth.AuthUiState
 import com.example.sos.auth.AuthViewModel
-import com.example.sos.ui.theme.AuthDesignTokens as Tokens
+import com.example.sos.ui.theme.AuthDesignTokens as T
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Root Screen
-// ═══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// Font aliases (from Type.kt – downloadable Google Fonts)
+// ══════════════════════════════════════════════════════════════════════════════
 
-/**
- * Root composable consumed by MainActivity. Collects [AuthViewModel] state and
- * drives navigation via [onLoginSuccess].
- */
+private val BebasNeue = BebasNeueFontFamily
+private val Outfit    = OutfitFontFamily
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Root Screen (wires ViewModel)
+// ══════════════════════════════════════════════════════════════════════════════
+
 @Composable
 fun LoginScreen(
     onLoginSuccess: () -> Unit,
     viewModel: AuthViewModel = viewModel(factory = AuthViewModel.Factory)
 ) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val uiState  by viewModel.uiState.collectAsStateWithLifecycle()
     val formState by viewModel.formState.collectAsStateWithLifecycle()
 
-    // Navigate on success
     LaunchedEffect(uiState) {
-        if (uiState is AuthUiState.Success) {
-            onLoginSuccess()
-        }
+        if (uiState is AuthUiState.Success) onLoginSuccess()
     }
 
     AuthScreen(
-        uiState = uiState,
-        formState = formState,
-        onEmailChanged = viewModel::onEmailChanged,
-        onPasswordChanged = viewModel::onPasswordChanged,
-        onDisplayNameChanged = viewModel::onDisplayNameChanged,
-        onConfirmPasswordChanged = viewModel::onConfirmPasswordChanged,
-        onTogglePasswordVisibility = viewModel::onTogglePasswordVisibility,
+        uiState                        = uiState,
+        formState                      = formState,
+        onEmailChanged                 = viewModel::onEmailChanged,
+        onPasswordChanged              = viewModel::onPasswordChanged,
+        onDisplayNameChanged           = viewModel::onDisplayNameChanged,
+        onConfirmPasswordChanged       = viewModel::onConfirmPasswordChanged,
+        onTogglePasswordVisibility     = viewModel::onTogglePasswordVisibility,
         onToggleConfirmPasswordVisibility = viewModel::onToggleConfirmPasswordVisibility,
-        onSignIn = viewModel::signIn,
-        onRegister = viewModel::register,
-        onClearError = viewModel::clearError
+        onSignIn                       = viewModel::signIn,
+        onRegister                     = viewModel::register,
+        onClearError                   = viewModel::clearError
     )
 }
 
-/**
- * Stateless presentation-layer composable — all state is passed in via parameters.
- * Makes it trivially previewable and testable.
- */
+// ══════════════════════════════════════════════════════════════════════════════
+// Stateless Auth Screen
+// ══════════════════════════════════════════════════════════════════════════════
+
 @Composable
 fun AuthScreen(
     uiState: AuthUiState,
@@ -149,414 +103,532 @@ fun AuthScreen(
     onRegister: () -> Unit,
     onClearError: () -> Unit
 ) {
-    // ── Shake animation ───────────────────────────────────────────────────
     val shakeOffset = remember { Animatable(0f) }
     LaunchedEffect(uiState) {
         if (uiState is AuthUiState.Error) {
-            shakeOffset.animateTo(
-                targetValue = 0f,
-                animationSpec = keyframes {
-                    durationMillis = Tokens.ShakeDurationMs
-                    0f at 0
-                    Tokens.ShakeAmplitude.value at 60
-                    -Tokens.ShakeAmplitude.value at 120
-                    10f at 180
-                    -10f at 240
-                    6f at 300
-                    0f at Tokens.ShakeDurationMs
-                }
-            )
+            shakeOffset.animateTo(0f, keyframes {
+                durationMillis = T.ShakeDurationMs
+                0f at 0; T.ShakeAmplitude.value at 60; -T.ShakeAmplitude.value at 120
+                10f at 180; -10f at 240; 6f at 300; 0f at T.ShakeDurationMs
+            })
         }
     }
 
-    // ── Tab state ─────────────────────────────────────────────────────────
     val selectedTab = remember { mutableIntStateOf(0) }
     val focusManager = LocalFocusManager.current
+    var rememberMe by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .semantics { contentDescription = "Authentication screen" }
+            .background(T.BackgroundCore)
+            .semantics { contentDescription = "RescueLink authentication screen" }
     ) {
-        // Layer 1 — Background
-        BackgroundLayer()
+        // ── Layer 0: Atmospheric background ──────────────────────────────
+        RescueLinkBackground()
 
-        // Layer 2 — Glass card (centered, with shake)
-        Box(
+        // ── Layer 1: Scrollable content ───────────────────────────────────
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp)
-                .imePaddingCompat(),
-            contentAlignment = Alignment.Center
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 28.dp)
+                .padding(top = 48.dp, bottom = 40.dp)
+                .imePadding(),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            GlassAuthCard(
+            // Hero Icon
+            HeroIconWrap()
+            Spacer(Modifier.height(28.dp))
+
+            // Brand
+            BrandBlock()
+            Spacer(Modifier.height(36.dp))
+
+            // Auth card with shake
+            RescueLinkCard(
                 modifier = Modifier.offset(x = shakeOffset.value.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(
-                            horizontal = 24.dp,
-                            vertical = 28.dp
-                        ),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    // Logo
-                    AuthLogoHeader()
+                Text(
+                    "Welcome back",
+                    fontFamily = Outfit,
+                    fontSize = T.CardTitleSize,
+                    fontWeight = FontWeight.Bold,
+                    color = T.TextPrimary
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Sign in to get instant roadside help, 24/7.",
+                    fontFamily = Outfit,
+                    fontSize = T.CardSubSize,
+                    color = T.TextSecondary,
+                    lineHeight = 20.sp
+                )
+                Spacer(Modifier.height(28.dp))
 
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    // Pill tab row
-                    AuthTabRow(
-                        selectedTab = selectedTab.intValue,
-                        onTabSelected = { tab ->
-                            if (tab != selectedTab.intValue) {
-                                selectedTab.intValue = tab
-                                onClearError()
-                            }
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    // Animated form area
-                    val isLoginTab = selectedTab.intValue == 0
-                    AnimatedContent(
-                        targetState = selectedTab.intValue,
-                        transitionSpec = {
-                            val direction = if (targetState > initialState) 1 else -1
-                            (slideInHorizontally(tween(Tokens.FormTransitionMs)) { it * direction } +
-                                    fadeIn(tween(Tokens.FormTransitionMs)))
-                                .togetherWith(
-                                    slideOutHorizontally(tween(Tokens.FormTransitionMs)) { -it * direction } +
-                                            fadeOut(tween(Tokens.FormTransitionMs))
-                                )
-                                .using(SizeTransform(clip = false))
-                        },
-                        label = "auth-form-transition"
-                    ) { tab ->
-                        if (tab == 0) {
-                            LoginForm(
-                                formState = formState,
-                                isLoading = uiState is AuthUiState.Loading,
-                                onEmailChanged = onEmailChanged,
-                                onPasswordChanged = onPasswordChanged,
-                                onTogglePasswordVisibility = onTogglePasswordVisibility,
-                                onSignIn = {
-                                    focusManager.clearFocus()
-                                    onSignIn()
-                                }
-                            )
-                        } else {
-                            RegisterForm(
-                                formState = formState,
-                                isLoading = uiState is AuthUiState.Loading,
-                                onDisplayNameChanged = onDisplayNameChanged,
-                                onEmailChanged = onEmailChanged,
-                                onPasswordChanged = onPasswordChanged,
-                                onConfirmPasswordChanged = onConfirmPasswordChanged,
-                                onTogglePasswordVisibility = onTogglePasswordVisibility,
-                                onToggleConfirmPasswordVisibility = onToggleConfirmPasswordVisibility,
-                                onRegister = {
-                                    focusManager.clearFocus()
-                                    onRegister()
-                                }
-                            )
+                // Tab row
+                AuthTabRow(
+                    selectedTab = selectedTab.intValue,
+                    onTabSelected = { tab ->
+                        if (tab != selectedTab.intValue) {
+                            selectedTab.intValue = tab
+                            onClearError()
                         }
                     }
+                )
+                Spacer(Modifier.height(24.dp))
 
-                    // Error banner
-                    AnimatedVisibility(
-                        visible = uiState is AuthUiState.Error,
-                        enter = fadeIn(tween(200)) + expandVertically(),
-                        exit = fadeOut(tween(200))
-                    ) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        AuthErrorBanner(
-                            message = (uiState as? AuthUiState.Error)?.message ?: ""
+                // Forms
+                AnimatedContent(
+                    targetState = selectedTab.intValue,
+                    transitionSpec = {
+                        val dir = if (targetState > initialState) 1 else -1
+                        (slideInHorizontally(tween(T.FormTransitionMs)) { it * dir } + fadeIn(tween(T.FormTransitionMs)))
+                            .togetherWith(slideOutHorizontally(tween(T.FormTransitionMs)) { -it * dir } + fadeOut(tween(T.FormTransitionMs)))
+                            .using(SizeTransform(clip = false))
+                    },
+                    label = "form"
+                ) { tab ->
+                    if (tab == 0) {
+                        LoginForm(
+                            formState = formState,
+                            isLoading = uiState is AuthUiState.Loading,
+                            rememberMe = rememberMe,
+                            onRememberMeToggle = { rememberMe = !rememberMe },
+                            onEmailChanged = onEmailChanged,
+                            onPasswordChanged = onPasswordChanged,
+                            onTogglePasswordVisibility = onTogglePasswordVisibility,
+                            onSignIn = { focusManager.clearFocus(); onSignIn() }
+                        )
+                    } else {
+                        RegisterForm(
+                            formState = formState,
+                            isLoading = uiState is AuthUiState.Loading,
+                            onDisplayNameChanged = onDisplayNameChanged,
+                            onEmailChanged = onEmailChanged,
+                            onPasswordChanged = onPasswordChanged,
+                            onConfirmPasswordChanged = onConfirmPasswordChanged,
+                            onTogglePasswordVisibility = onTogglePasswordVisibility,
+                            onToggleConfirmPasswordVisibility = onToggleConfirmPasswordVisibility,
+                            onRegister = { focusManager.clearFocus(); onRegister() }
                         )
                     }
                 }
+
+                // Error banner
+                AnimatedVisibility(
+                    visible = uiState is AuthUiState.Error,
+                    enter = fadeIn(tween(200)) + expandVertically(),
+                    exit = fadeOut(tween(200))
+                ) {
+                    Spacer(Modifier.height(12.dp))
+                    AuthErrorBanner((uiState as? AuthUiState.Error)?.message ?: "")
+                }
             }
+
+            // Sign-up row
+            Spacer(Modifier.height(22.dp))
+            Row(horizontalArrangement = Arrangement.Center) {
+                Text(
+                    if (selectedTab.intValue == 0) "New to RescueLink? " else "Already have an account? ",
+                    fontFamily = Outfit,
+                    fontSize = 13.5.sp,
+                    color = T.TextSecondary
+                )
+                Text(
+                    if (selectedTab.intValue == 0) "Create free account" else "Sign in",
+                    fontFamily = Outfit,
+                    fontSize = 13.5.sp,
+                    color = T.RedHot,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { selectedTab.intValue = if (selectedTab.intValue == 0) 1 else 0 }
+                )
+            }
+
+            // SOS Strip
+            Spacer(Modifier.height(28.dp))
+            SosEmergencyStrip()
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 // Background Layer
-// ═══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 
 @Composable
-private fun BackgroundLayer() {
+private fun RescueLinkBackground() {
+    val inf = rememberInfiniteTransition(label = "bgGlow")
+
+    // Blob 1 – top-left red
+    val glow1Alpha by inf.animateFloat(
+        0.14f, 0.24f,
+        infiniteRepeatable(tween(T.GlowPulseDurationMs, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "glow1"
+    )
+    val glow1Scale by inf.animateFloat(
+        1f, 1.08f,
+        infiniteRepeatable(tween(T.GlowPulseDurationMs, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "glow1s"
+    )
+
+    // Blob 2 – bottom-right deep red (delayed)
+    val glow2Alpha by inf.animateFloat(
+        0.14f, 0.24f,
+        infiniteRepeatable(tween(T.GlowPulseDurationMs, easing = FastOutSlowInEasing, delayMillis = 2500), RepeatMode.Reverse),
+        label = "glow2"
+    )
+    val glow2Scale by inf.animateFloat(
+        1f, 1.08f,
+        infiniteRepeatable(tween(T.GlowPulseDurationMs, easing = FastOutSlowInEasing, delayMillis = 2500), RepeatMode.Reverse),
+        label = "glow2s"
+    )
+
     Box(modifier = Modifier.fillMaxSize()) {
-        // Vertical gradient base
+        // Dot grid
+        Box(modifier = Modifier
+            .fillMaxSize()
+            .drawBehind { drawGrid(T.GridLineColor, T.GridCellSize.toPx()) }
+        )
+
+        // Blob 1
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                .size(560.dp)
+                .offset(x = (-160).dp, y = (-160).dp)
+                .graphicsLayer { alpha = glow1Alpha; scaleX = glow1Scale; scaleY = glow1Scale }
                 .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Tokens.BackgroundStart, Tokens.BackgroundEnd)
-                    )
+                    Brush.radialGradient(listOf(T.RedHot, Color.Transparent)),
+                    CircleShape
                 )
         )
-        // Subtle top-right radial accent glow
+
+        // Blob 2
         Box(
             modifier = Modifier
-                .size(320.dp)
-                .align(Alignment.TopEnd)
+                .size(400.dp)
+                .align(Alignment.BottomEnd)
+                .offset(x = 80.dp, y = 100.dp)
+                .graphicsLayer { alpha = glow2Alpha; scaleX = glow2Scale; scaleY = glow2Scale }
                 .background(
-                    Brush.radialGradient(
-                        colors = listOf(Tokens.GlowAccent, Color.Transparent)
-                    )
+                    Brush.radialGradient(listOf(T.RedDeep, Color.Transparent)),
+                    CircleShape
+                )
+        )
+
+        // Diagonal slash accent
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .height(340.dp)
+                .align(Alignment.Center)
+                .graphicsLayer { alpha = 0.12f; rotationZ = -28f }
+                .background(
+                    Brush.verticalGradient(listOf(Color.Transparent, T.RedHot, Color.Transparent))
                 )
         )
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Glass Card
-// ═══════════════════════════════════════════════════════════════════════════════
+private fun DrawScope.drawGrid(color: Color, cellPx: Float) {
+    // Horizontal lines
+    var y = 0f
+    while (y < size.height) {
+        drawLine(color, Offset(0f, y), Offset(size.width, y), 1f)
+        y += cellPx
+    }
+    // Vertical lines
+    var x = 0f
+    while (x < size.width) {
+        drawLine(color, Offset(x, 0f), Offset(x, size.height), 1f)
+        x += cellPx
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Hero Icon
+// ══════════════════════════════════════════════════════════════════════════════
 
 @Composable
-private fun GlassAuthCard(
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
-) {
-    val borderBrush = Brush.linearGradient(
-        colors = listOf(Tokens.CardBorderStart, Tokens.CardBorderEnd)
+private fun HeroIconWrap() {
+    val inf = rememberInfiniteTransition(label = "hero")
+
+    // Spinning conic ring
+    val ringRotation by inf.animateFloat(
+        0f, 360f,
+        infiniteRepeatable(tween(T.SpinRingDurationMs, easing = LinearEasing)),
+        label = "ring"
     )
-    val shape = RoundedCornerShape(Tokens.CardCorner)
 
-    // Blur only on API 31+
-    val blurModifier = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        Modifier.blur(radius = 0.5.dp) // very subtle frosted glass
-    } else {
-        Modifier
+    // Pulse dot
+    val dotScale by inf.animateFloat(
+        1f, 1.1f,
+        infiniteRepeatable(tween(T.PulseDurationMs, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "dot"
+    )
+    val dotGlow by inf.animateFloat(
+        0f, 6f,
+        infiniteRepeatable(tween(T.PulseDurationMs, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "dotG"
+    )
+
+    Box(
+        modifier = Modifier.size(T.HeroRingSize + 16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        // Outer spinning gradient ring (conic-ish via rotation)
+        Box(
+            modifier = Modifier
+                .size(T.HeroRingSize + 4.dp)
+                .graphicsLayer { rotationZ = ringRotation }
+                .background(
+                    Brush.sweepGradient(
+                        0f to Color.Transparent,
+                        0.6f to Color.Transparent,
+                        0.85f to T.RedHot.copy(alpha = 0.7f),
+                        1f to Color.Transparent
+                    ),
+                    RoundedCornerShape(28.dp)
+                )
+        )
+
+        // Inner hero box
+        Box(
+            modifier = Modifier
+                .size(T.HeroRingSize)
+                .clip(RoundedCornerShape(T.HeroRingCorner))
+                .background(
+                    Brush.linearGradient(listOf(T.HeroRingBg1, T.HeroRingBg2))
+                )
+                .border(1.5.dp, T.HeroRingBorder, RoundedCornerShape(T.HeroRingCorner)),
+            contentAlignment = Alignment.Center
+        ) {
+            // Car / warning icon (using Warning material icon with red tint + glow)
+            Icon(
+                imageVector = Icons.Rounded.Warning,
+                contentDescription = "Road emergency",
+                tint = T.RedHot,
+                modifier = Modifier.size(T.HeroIconSize)
+            )
+        }
+
+        // Pulse dot
+        Box(
+            modifier = Modifier
+                .size(T.PulseDotSize)
+                .align(Alignment.TopEnd)
+                .offset(x = (-4).dp, y = 4.dp)
+                .scale(dotScale)
+                .clip(CircleShape)
+                .background(T.PulseDotColor)
+                .border(2.5.dp, T.BackgroundCore, CircleShape)
+        )
     }
+}
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Brand Block – gradient text "RescueLink"
+// ══════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun BrandBlock() {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = "RescueLink",
+            style = TextStyle(
+                fontFamily = BebasNeue,
+                fontSize    = T.BrandNameSize,
+                letterSpacing = 3.sp,
+                brush       = Brush.linearGradient(
+                    0.3f to Color.White,
+                    1.0f to T.RedGlow,
+                    start = Offset(0f, 0f),
+                    end   = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
+                )
+            )
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "EMERGENCY ROAD ASSIST",
+            fontFamily = Outfit,
+            fontSize = T.BrandTagSize,
+            fontWeight = FontWeight.Medium,
+            letterSpacing = 4.sp,
+            color = T.RedHot
+        )
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Card Container
+// ══════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun RescueLinkCard(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val shape = RoundedCornerShape(T.CardCorner)
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .graphicsLayer { shadowElevation = Tokens.CardShadowElevation }
+            .graphicsLayer { shadowElevation = T.CardShadowElevation }
             .clip(shape)
-            .then(blurModifier)
-            .background(color = Tokens.CardSurface, shape = shape)
-            .border(width = Tokens.CardBorderWidth, brush = borderBrush, shape = shape)
+            .background(T.CardSurface, shape)
+            .border(T.CardBorderWidth, T.CardBorderStart, shape)
     ) {
-        content()
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Logo Header
-// ═══════════════════════════════════════════════════════════════════════════════
-
-@Composable
-private fun AuthLogoHeader() {
-    AnimatedVisibility(
-        visible = true,
-        enter = scaleIn(tween(400)) + fadeIn(tween(400))
-    ) {
+        // Top-edge shimmer line
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.8f)
+                .height(1.dp)
+                .align(Alignment.TopCenter)
+                .background(
+                    Brush.horizontalGradient(listOf(Color.Transparent, T.RedHot.copy(0.6f), Color.Transparent))
+                )
+        )
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.semantics { contentDescription = "Emergency Response Platform logo" }
-        ) {
-            // Outer ring
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(Tokens.LogoOuterSize)
-                    .background(
-                        color = Tokens.AccentStart.copy(alpha = Tokens.LogoOuterAlpha),
-                        shape = CircleShape
-                    )
-            ) {
-                // Inner ring
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(Tokens.LogoInnerSize)
-                        .background(
-                            color = Tokens.AccentStart.copy(alpha = Tokens.LogoInnerAlpha),
-                            shape = CircleShape
-                        )
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Shield,
-                        contentDescription = null, // described by outer semantics
-                        tint = Tokens.AccentStart,
-                        modifier = Modifier.size(Tokens.LogoIconSize)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Text(
-                text = "SOS",
-                fontSize = Tokens.AppNameSize,
-                fontWeight = FontWeight.Bold,
-                color = Tokens.TextPrimary
-            )
-            Text(
-                text = "Emergency Response Platform",
-                fontSize = Tokens.SubtitleSize,
-                color = Tokens.TextSecondary
-            )
-        }
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 28.dp, vertical = 32.dp),
+            content = content
+        )
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Custom Pill Tab Row
-// ═══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// Tab Row
+// ══════════════════════════════════════════════════════════════════════════════
 
 @Composable
-private fun AuthTabRow(
-    selectedTab: Int,
-    onTabSelected: (Int) -> Unit
-) {
+private fun AuthTabRow(selectedTab: Int, onTabSelected: (Int) -> Unit) {
     val tabs = listOf("Sign In", "Create Account")
-
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(color = Tokens.TabBackground, shape = RoundedCornerShape(Tokens.TabCorner))
+            .background(T.TabBackground, RoundedCornerShape(T.TabCorner))
             .padding(4.dp)
-            .semantics { contentDescription = "Authentication mode selector" }
     ) {
-        // Animated active pill indicator
-        val indicatorOffsetFraction by animateDpAsState(
-            targetValue = if (selectedTab == 0) 0.dp else 1.dp,
-            animationSpec = tween(Tokens.TabSlideDurationMs),
-            label = "tab-indicator-offset"
-        )
-
-        Row(modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth()) {
             tabs.forEachIndexed { index, title ->
                 val isActive = selectedTab == index
                 val textColor by animateColorAsState(
-                    targetValue = if (isActive) Tokens.TextPrimary else Tokens.TextSecondary,
-                    animationSpec = tween(Tokens.TabSlideDurationMs),
-                    label = "tab-text-color-$index"
+                    if (isActive) T.TextPrimary else T.TextSecondary,
+                    tween(T.TabSlideDurationMs), label = "tc$index"
                 )
-
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(Tokens.TabCorner))
-                        .background(
-                            color = if (isActive) Tokens.AccentStart else Color.Transparent
-                        )
-                        .then(
-                            Modifier.semantics {
-                                contentDescription = "$title tab${if (isActive) ", selected" else ""}"
-                                role = Role.Tab
-                            }
-                        )
+                        .clip(RoundedCornerShape(T.TabCorner))
+                        .background(if (isActive) T.RedHot else Color.Transparent)
+                        .semantics { contentDescription = "$title tab${if (isActive) ", selected" else ""}"; role = Role.Tab }
                         .noRippleClickable { onTabSelected(index) }
                         .padding(vertical = 10.dp)
                 ) {
-                    Text(
-                        text = title,
-                        fontSize = Tokens.TabLabelSize,
-                        fontWeight = FontWeight.SemiBold,
-                        color = textColor
-                    )
+                    Text(title, fontFamily = Outfit, fontSize = T.TabLabelSize, fontWeight = FontWeight.SemiBold, color = textColor)
                 }
             }
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Forms
-// ═══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// Login Form
+// ══════════════════════════════════════════════════════════════════════════════
 
 @Composable
 private fun LoginForm(
     formState: AuthFormState,
     isLoading: Boolean,
+    rememberMe: Boolean,
+    onRememberMeToggle: () -> Unit,
     onEmailChanged: (String) -> Unit,
     onPasswordChanged: (String) -> Unit,
     onTogglePasswordVisibility: () -> Unit,
     onSignIn: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        AuthTextField(
+    Column(Modifier.fillMaxWidth()) {
+        RescueLinkTextField(
             value = formState.email,
             onChange = onEmailChanged,
-            label = "Email",
+            label = "Email Address",
             placeholder = "you@example.com",
             leadingIcon = Icons.Rounded.MailOutline,
-            leadingIconDescription = "Email icon",
+            leadingIconDescription = "Email",
             isError = formState.emailError != null,
             errorMessage = formState.emailError,
             keyboardType = KeyboardType.Email,
             imeAction = ImeAction.Next
         )
+        Spacer(Modifier.height(16.dp))
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        AuthTextField(
+        RescueLinkTextField(
             value = formState.password,
             onChange = onPasswordChanged,
             label = "Password",
             placeholder = "••••••••",
             leadingIcon = Icons.Rounded.Lock,
-            leadingIconDescription = "Password icon",
+            leadingIconDescription = "Password",
             isError = formState.passwordError != null,
             errorMessage = formState.passwordError,
             keyboardType = KeyboardType.Password,
             imeAction = ImeAction.Done,
-            visualTransformation = if (formState.isPasswordVisible)
-                VisualTransformation.None else PasswordVisualTransformation(),
+            visualTransformation = if (formState.isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
-                IconButton(
-                    onClick = onTogglePasswordVisibility,
-                    modifier = Modifier.semantics {
-                        contentDescription = if (formState.isPasswordVisible)
-                            "Hide password" else "Show password"
-                    }
-                ) {
+                IconButton(onClick = onTogglePasswordVisibility) {
                     Icon(
-                        imageVector = if (formState.isPasswordVisible)
-                            Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                        contentDescription = null,
-                        tint = Tokens.TextSecondary
+                        if (formState.isPasswordVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                        contentDescription = if (formState.isPasswordVisible) "Hide password" else "Show password",
+                        tint = T.TextSecondary
                     )
                 }
             },
             keyboardActions = KeyboardActions(onDone = { onSignIn() })
         )
 
-        // Forgot password
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(
-                onClick = { /* TODO: forgot password flow */ },
-                modifier = Modifier.semantics { contentDescription = "Forgot password" }
-            ) {
-                Text(
-                    text = "Forgot password?",
-                    fontSize = Tokens.ErrorTextSize,
-                    color = Tokens.AccentStart,
-                    fontWeight = FontWeight.Medium
-                )
+        // Remember / Forgot row
+        Spacer(Modifier.height(4.dp))
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RememberMeCheckbox(checked = rememberMe, onToggle = onRememberMeToggle)
+            TextButton(onClick = {}) {
+                Text("Forgot password?", fontFamily = Outfit, fontSize = 13.sp, color = T.RedHot, fontWeight = FontWeight.Medium)
             }
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(Modifier.height(4.dp))
+        AuthSubmitButton("Sign In to RescueLink", isLoading = isLoading, isEnabled = !isLoading, onClick = onSignIn)
 
-        AuthSubmitButton(
-            label = "Sign In",
-            isLoading = isLoading,
-            isEnabled = !isLoading,
-            onClick = onSignIn
-        )
+        // Divider
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.weight(1f).height(1.dp).background(Brush.horizontalGradient(listOf(Color.Transparent, T.BlackRim))))
+            Text(
+                "  or continue with  ",
+                fontFamily = Outfit,
+                fontSize = 12.sp,
+                color = T.TextSecondary.copy(0.4f)
+            )
+            Box(Modifier.weight(1f).height(1.dp).background(Brush.horizontalGradient(listOf(T.BlackRim, Color.Transparent))))
+        }
+
+        // Google Button
+        GoogleSignInButton()
     }
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Register Form
+// ══════════════════════════════════════════════════════════════════════════════
 
 @Composable
 private fun RegisterForm(
@@ -570,125 +642,96 @@ private fun RegisterForm(
     onToggleConfirmPasswordVisibility: () -> Unit,
     onRegister: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        AuthTextField(
+    Column(Modifier.fillMaxWidth()) {
+        RescueLinkTextField(
             value = formState.displayName,
             onChange = onDisplayNameChanged,
             label = "Full Name",
             placeholder = "Jane Doe",
             leadingIcon = Icons.Rounded.Person,
-            leadingIconDescription = "Person icon",
+            leadingIconDescription = "Name",
             isError = formState.displayNameError != null,
             errorMessage = formState.displayNameError,
             keyboardType = KeyboardType.Text,
             imeAction = ImeAction.Next
         )
+        Spacer(Modifier.height(16.dp))
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        AuthTextField(
+        RescueLinkTextField(
             value = formState.email,
             onChange = onEmailChanged,
-            label = "Email",
+            label = "Email Address",
             placeholder = "you@example.com",
             leadingIcon = Icons.Rounded.MailOutline,
-            leadingIconDescription = "Email icon",
+            leadingIconDescription = "Email",
             isError = formState.emailError != null,
             errorMessage = formState.emailError,
             keyboardType = KeyboardType.Email,
             imeAction = ImeAction.Next
         )
+        Spacer(Modifier.height(16.dp))
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        AuthTextField(
+        RescueLinkTextField(
             value = formState.password,
             onChange = onPasswordChanged,
             label = "Password",
             placeholder = "Min 8 characters",
             leadingIcon = Icons.Rounded.Lock,
-            leadingIconDescription = "Password icon",
+            leadingIconDescription = "Password",
             isError = formState.passwordError != null,
             errorMessage = formState.passwordError,
             keyboardType = KeyboardType.Password,
             imeAction = ImeAction.Next,
-            visualTransformation = if (formState.isPasswordVisible)
-                VisualTransformation.None else PasswordVisualTransformation(),
+            visualTransformation = if (formState.isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
-                IconButton(
-                    onClick = onTogglePasswordVisibility,
-                    modifier = Modifier.semantics {
-                        contentDescription = if (formState.isPasswordVisible)
-                            "Hide password" else "Show password"
-                    }
-                ) {
+                IconButton(onClick = onTogglePasswordVisibility) {
                     Icon(
-                        imageVector = if (formState.isPasswordVisible)
-                            Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                        contentDescription = null,
-                        tint = Tokens.TextSecondary
+                        if (formState.isPasswordVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                        null, tint = T.TextSecondary
                     )
                 }
             }
         )
 
-        // Password strength bar
         if (formState.password.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(Modifier.height(8.dp))
             PasswordStrengthBar(strength = formState.passwordStrength)
         }
+        Spacer(Modifier.height(16.dp))
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        AuthTextField(
+        RescueLinkTextField(
             value = formState.confirmPassword,
             onChange = onConfirmPasswordChanged,
             label = "Confirm Password",
             placeholder = "Re-enter password",
             leadingIcon = Icons.Rounded.Lock,
-            leadingIconDescription = "Confirm password icon",
+            leadingIconDescription = "Confirm password",
             isError = formState.confirmPasswordError != null,
             errorMessage = formState.confirmPasswordError,
             keyboardType = KeyboardType.Password,
             imeAction = ImeAction.Done,
-            visualTransformation = if (formState.isConfirmPasswordVisible)
-                VisualTransformation.None else PasswordVisualTransformation(),
+            visualTransformation = if (formState.isConfirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
-                IconButton(
-                    onClick = onToggleConfirmPasswordVisibility,
-                    modifier = Modifier.semantics {
-                        contentDescription = if (formState.isConfirmPasswordVisible)
-                            "Hide confirm password" else "Show confirm password"
-                    }
-                ) {
+                IconButton(onClick = onToggleConfirmPasswordVisibility) {
                     Icon(
-                        imageVector = if (formState.isConfirmPasswordVisible)
-                            Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                        contentDescription = null,
-                        tint = Tokens.TextSecondary
+                        if (formState.isConfirmPasswordVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                        null, tint = T.TextSecondary
                     )
                 }
             },
             keyboardActions = KeyboardActions(onDone = { onRegister() })
         )
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        AuthSubmitButton(
-            label = "Create Account",
-            isLoading = isLoading,
-            isEnabled = !isLoading,
-            onClick = onRegister
-        )
+        Spacer(Modifier.height(24.dp))
+        AuthSubmitButton("Create Account", isLoading = isLoading, isEnabled = !isLoading, onClick = onRegister)
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Reusable Text Field
-// ═══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// Reusable TextField
+// ══════════════════════════════════════════════════════════════════════════════
 
 @Composable
-private fun AuthTextField(
+private fun RescueLinkTextField(
     value: String,
     onChange: (String) -> Unit,
     label: String,
@@ -708,222 +751,226 @@ private fun AuthTextField(
     val isFocused by interactionSource.collectIsFocusedAsState()
 
     val borderColor by animateColorAsState(
-        targetValue = when {
-            isError -> Tokens.FieldError
-            isFocused -> Tokens.FieldFocused
-            else -> Tokens.FieldBorder
-        },
-        animationSpec = tween(Tokens.ColorAnimDurationMs),
-        label = "field-border-$label"
+        when { isError -> T.FieldError; isFocused -> T.FieldFocused; else -> T.FieldBorder },
+        tween(T.ColorAnimDurationMs), label = "border-$label"
     )
     val iconTint by animateColorAsState(
-        targetValue = if (isFocused) Tokens.FieldFocused else Tokens.TextSecondary,
-        animationSpec = tween(Tokens.ColorAnimDurationMs),
-        label = "icon-tint-$label"
+        if (isFocused) T.FieldFocused else T.TextSecondary.copy(0.4f),
+        tween(T.ColorAnimDurationMs), label = "icon-$label"
+    )
+    val bgColor by animateColorAsState(
+        if (isFocused) T.FieldFocusBg else T.FieldFill,
+        tween(T.ColorAnimDurationMs), label = "bg-$label"
     )
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .semantics { contentDescription = "$label field" }
-    ) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        // Label
+        Text(
+            label.uppercase(),
+            fontFamily = Outfit,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 2.sp,
+            color = T.TextLabel,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+
         TextField(
             value = value,
             onValueChange = onChange,
-            placeholder = {
-                Text(text = placeholder, color = Tokens.TextHint)
-            },
-            label = {
-                Text(text = label, color = if (isError) Tokens.FieldError else Tokens.TextSecondary)
-            },
+            placeholder = { Text(placeholder, fontFamily = Outfit, color = T.TextHint) },
             leadingIcon = {
-                Icon(
-                    imageVector = leadingIcon,
-                    contentDescription = leadingIconDescription,
-                    tint = if (isError) Tokens.FieldError else iconTint,
-                    modifier = Modifier.size(20.dp)
-                )
+                Icon(leadingIcon, leadingIconDescription, tint = if (isError) T.FieldError else iconTint, modifier = Modifier.size(18.dp))
             },
             trailingIcon = trailingIcon,
             isError = isError,
             visualTransformation = visualTransformation,
-            keyboardOptions = KeyboardOptions(
-                keyboardType = keyboardType,
-                imeAction = imeAction
-            ),
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
             keyboardActions = keyboardActions,
             interactionSource = interactionSource,
             singleLine = true,
-            shape = RoundedCornerShape(Tokens.FieldCorner),
+            shape = RoundedCornerShape(T.FieldCorner),
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = Tokens.FieldFill,
-                unfocusedContainerColor = Tokens.FieldFill,
-                errorContainerColor = Tokens.FieldFill,
-                focusedTextColor = Tokens.TextPrimary,
-                unfocusedTextColor = Tokens.TextPrimary,
-                errorTextColor = Tokens.TextPrimary,
-                focusedIndicatorColor = Color.Transparent,
+                focusedContainerColor   = bgColor,
+                unfocusedContainerColor = bgColor,
+                errorContainerColor     = bgColor,
+                focusedTextColor        = T.TextPrimary,
+                unfocusedTextColor      = T.TextPrimary,
+                errorTextColor          = T.TextPrimary,
+                focusedIndicatorColor   = Color.Transparent,
                 unfocusedIndicatorColor = Color.Transparent,
-                errorIndicatorColor = Color.Transparent,
-                cursorColor = Tokens.FieldFocused,
-                errorCursorColor = Tokens.FieldError
+                errorIndicatorColor     = Color.Transparent,
+                cursorColor             = T.FieldFocused,
+                errorCursorColor        = T.FieldError
             ),
             modifier = Modifier
                 .fillMaxWidth()
-                .border(
-                    width = 1.dp,
-                    color = borderColor,
-                    shape = RoundedCornerShape(Tokens.FieldCorner)
-                )
+                .border(1.5.dp, borderColor, RoundedCornerShape(T.FieldCorner))
         )
 
-        // Inline error message
         AnimatedVisibility(
             visible = isError && errorMessage != null,
             enter = fadeIn(tween(150)),
             exit = fadeOut(tween(150))
         ) {
             Text(
-                text = errorMessage ?: "",
-                fontSize = Tokens.ErrorTextSize,
-                color = Tokens.FieldError,
-                modifier = Modifier
-                    .padding(start = 16.dp, top = 4.dp)
-                    .semantics { contentDescription = "Error: $errorMessage" }
+                errorMessage ?: "",
+                fontSize = T.ErrorTextSize,
+                color = T.FieldError,
+                fontFamily = Outfit,
+                modifier = Modifier.padding(start = 16.dp, top = 4.dp)
             )
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Password Strength Bar
-// ═══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// Remember Me Checkbox
+// ══════════════════════════════════════════════════════════════════════════════
 
 @Composable
-private fun PasswordStrengthBar(strength: Int) {
-    val labels = listOf("", "Weak", "Fair", "Strong", "Very Strong")
-    val colors = listOf(
-        Color.Transparent,
-        Color(0xFFFF6B6B),   // weak — error-ish red
-        Color(0xFFFFB74D),   // fair — amber
-        Color(0xFF66BB6A),   // strong — green
-        Tokens.AccentStart   // very strong — brand red (max engagement)
-    )
-
-    Column(
+private fun RememberMeCheckbox(checked: Boolean, onToggle: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .fillMaxWidth()
-            .semantics { contentDescription = "Password strength: ${labels.getOrElse(strength) { "" }}" }
+            .noRippleClickable { onToggle() }
+            .semantics { contentDescription = if (checked) "Remember me, checked" else "Remember me, unchecked" }
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        val bgColor by animateColorAsState(
+            if (checked) T.RedHot else T.BlackMid,
+            tween(T.ColorAnimDurationMs), label = "cb-bg"
+        )
+        val borderCol by animateColorAsState(
+            if (checked) T.RedHot else T.BlackRim,
+            tween(T.ColorAnimDurationMs), label = "cb-border"
+        )
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .clip(RoundedCornerShape(5.dp))
+                .background(bgColor)
+                .border(1.5.dp, borderCol, RoundedCornerShape(5.dp)),
+            contentAlignment = Alignment.Center
         ) {
-            repeat(4) { index ->
-                val segmentFilled = strength > index
-                val segmentColor by animateColorAsState(
-                    targetValue = if (segmentFilled) colors.getOrElse(strength) { Color.Transparent }
-                    else Tokens.FieldBorder,
-                    animationSpec = tween(Tokens.ColorAnimDurationMs),
-                    label = "strength-segment-$index"
-                )
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(segmentColor)
-                )
+            if (checked) {
+                Icon(Icons.Rounded.Check, null, tint = Color.White, modifier = Modifier.size(12.dp))
             }
         }
-        if (strength > 0) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = labels.getOrElse(strength) { "" },
-                fontSize = Tokens.ErrorTextSize,
-                color = colors.getOrElse(strength) { Color.Transparent },
-                fontWeight = FontWeight.Medium
-            )
+        Spacer(Modifier.width(8.dp))
+        Text("Remember me", fontFamily = Outfit, fontSize = 13.sp, color = T.TextSecondary)
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Google Sign-In Button
+// ══════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun GoogleSignInButton() {
+    OutlinedButton(
+        onClick = { /* TODO: Google sign-in */ },
+        modifier = Modifier.fillMaxWidth().height(50.dp),
+        shape = RoundedCornerShape(T.FieldCorner),
+        border = BorderStroke(1.5.dp, T.BlackRim),
+        colors = ButtonDefaults.outlinedButtonColors(containerColor = T.BlackMid, contentColor = T.TextPrimary)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+            // Google "G" icon (simplified colored circles)
+            Box(
+                Modifier
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF4285F4)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("G", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.width(10.dp))
+            Text("Continue with Google", fontFamily = Outfit, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 // Submit Button
-// ═══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 
 @Composable
-private fun AuthSubmitButton(
-    label: String,
-    isLoading: Boolean,
-    isEnabled: Boolean,
-    onClick: () -> Unit
-) {
-    val scale by animateFloatAsState(
-        targetValue = if (isLoading) 0.97f else 1f,
-        animationSpec = tween(100),
-        label = "submit-button-scale"
-    )
-
-    val accentGradient = Brush.horizontalGradient(
-        colors = listOf(Tokens.AccentStart, Tokens.AccentEnd)
-    )
+private fun AuthSubmitButton(label: String, isLoading: Boolean, isEnabled: Boolean, onClick: () -> Unit) {
+    val scale by animateFloatAsState(if (isLoading) 0.97f else 1f, tween(100), label = "btn-scale")
+    val gradient = Brush.linearGradient(listOf(T.RedHot, T.RedDeep))
 
     Button(
         onClick = onClick,
         enabled = isEnabled,
-        shape = RoundedCornerShape(Tokens.ButtonCorner),
+        shape = RoundedCornerShape(T.ButtonCorner),
         colors = ButtonDefaults.buttonColors(
             containerColor = Color.Transparent,
-            contentColor = Tokens.TextPrimary,
+            contentColor   = T.TextPrimary,
             disabledContainerColor = Color.Transparent,
-            disabledContentColor = Tokens.TextPrimary.copy(alpha = 0.5f)
+            disabledContentColor = T.TextPrimary.copy(0.5f)
         ),
         modifier = Modifier
             .fillMaxWidth()
-            .height(Tokens.ButtonHeight)
+            .height(T.ButtonHeight)
             .scale(scale)
             .background(
-                brush = if (isEnabled) accentGradient
-                else Brush.horizontalGradient(
-                    colors = listOf(
-                        Tokens.AccentStart.copy(alpha = 0.5f),
-                        Tokens.AccentEnd.copy(alpha = 0.5f)
-                    )
-                ),
-                shape = RoundedCornerShape(Tokens.ButtonCorner)
+                if (isEnabled) gradient else Brush.horizontalGradient(listOf(T.RedHot.copy(0.5f), T.RedDeep.copy(0.5f))),
+                RoundedCornerShape(T.ButtonCorner)
             )
-            .semantics {
-                contentDescription = if (isLoading) "Loading, please wait" else label
-            }
+            .semantics { contentDescription = if (isLoading) "Loading" else label }
     ) {
         AnimatedContent(
             targetState = isLoading,
-            transitionSpec = {
-                fadeIn(tween(150)) togetherWith fadeOut(tween(150))
-            },
-            label = "submit-button-content"
+            transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(150)) },
+            label = "btn-content"
         ) { loading ->
             if (loading) {
                 CircularProgressIndicator(
-                    color = Tokens.TextPrimary,
-                    strokeWidth = Tokens.ButtonLoadingIndicatorStroke,
-                    modifier = Modifier.size(Tokens.ButtonLoadingIndicatorSize)
+                    color = T.TextPrimary,
+                    strokeWidth = T.ButtonLoadingIndicatorStroke,
+                    modifier = Modifier.size(T.ButtonLoadingIndicatorSize)
                 )
             } else {
-                Text(
-                    text = label,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = Tokens.TabLabelSize
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                    Icon(Icons.Rounded.Login, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(label, fontFamily = Outfit, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
             }
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// Password Strength Bar (carried over)
+// ══════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun PasswordStrengthBar(strength: Int) {
+    val labels = listOf("", "Weak", "Fair", "Strong", "Very Strong")
+    val colors = listOf(Color.Transparent, Color(0xFFFF6B6B), Color(0xFFFFB74D), Color(0xFF66BB6A), T.RedHot)
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            repeat(4) { index ->
+                val filled = strength > index
+                val segColor by animateColorAsState(
+                    if (filled) colors.getOrElse(strength) { Color.Transparent } else T.FieldBorder,
+                    tween(T.ColorAnimDurationMs), label = "seg-$index"
+                )
+                Box(Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp)).background(segColor))
+            }
+        }
+        if (strength > 0) {
+            Spacer(Modifier.height(4.dp))
+            Text(labels.getOrElse(strength) { "" }, fontSize = T.ErrorTextSize, color = colors.getOrElse(strength) { Color.Transparent }, fontWeight = FontWeight.Medium, fontFamily = Outfit)
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Error Banner
-// ═══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 
 @Composable
 private fun AuthErrorBanner(message: String) {
@@ -931,60 +978,117 @@ private fun AuthErrorBanner(message: String) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                color = Tokens.ErrorBannerBg,
-                shape = RoundedCornerShape(Tokens.ErrorBannerCorner)
-            )
-            .border(
-                width = 1.dp,
-                color = Tokens.ErrorBannerBorder,
-                shape = RoundedCornerShape(Tokens.ErrorBannerCorner)
-            )
+            .background(T.ErrorBannerBg, RoundedCornerShape(T.ErrorBannerCorner))
+            .border(1.dp, T.ErrorBannerBorder, RoundedCornerShape(T.ErrorBannerCorner))
             .padding(horizontal = 14.dp, vertical = 12.dp)
             .semantics { contentDescription = "Error: $message" }
     ) {
-        Icon(
-            imageVector = Icons.Rounded.ErrorOutline,
-            contentDescription = null,
-            tint = Tokens.FieldError,
-            modifier = Modifier.size(18.dp)
-        )
-        Spacer(modifier = Modifier.width(10.dp))
-        Text(
-            text = message,
-            fontSize = Tokens.ErrorBannerTextSize,
-            color = Tokens.FieldError,
-            fontWeight = FontWeight.Medium
-        )
+        Icon(Icons.Rounded.ErrorOutline, null, tint = T.FieldError, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(message, fontSize = T.ErrorBannerTextSize, color = T.FieldError, fontWeight = FontWeight.Medium, fontFamily = Outfit)
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Utility Extensions
-// ═══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// SOS Emergency Strip
+// ══════════════════════════════════════════════════════════════════════════════
 
-/** Cross-version IME padding helper. */
 @Composable
-private fun Modifier.imePaddingCompat(): Modifier = this.imePadding()
+private fun SosEmergencyStrip() {
+    val context = LocalContext.current
+    var isPressed by remember { mutableStateOf(false) }
 
-/** Ripple-free clickable — must be called inside a @Composable context. */
+    val bgAlpha by animateFloatAsState(if (isPressed) 0.25f else 0.07f, tween(200), label = "sos-bg")
+    val borderAlpha by animateFloatAsState(if (isPressed) 0.7f else 0.18f, tween(200), label = "sos-border")
+
+    // Pulse for the badge
+    val inf = rememberInfiniteTransition(label = "sos-pulse")
+    val badgeScale by inf.animateFloat(
+        1f, 1.1f,
+        infiniteRepeatable(tween(T.PulseDurationMs, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "badge-scale"
+    )
+
+    LaunchedEffect(isPressed) {
+        if (isPressed) {
+            kotlinx.coroutines.delay(T.StripFlashDurationMs.toLong())
+            isPressed = false
+        }
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(T.RedHot.copy(bgAlpha), RoundedCornerShape(T.SosStripCorner))
+            .border(1.dp, T.RedHot.copy(borderAlpha), RoundedCornerShape(T.SosStripCorner))
+            .padding(horizontal = 18.dp, vertical = 14.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
+                isPressed = true
+                AlertDialog.Builder(context)
+                    .setTitle("Emergency Help")
+                    .setMessage("Choose how to get immediate assistance:")
+                    .setPositiveButton("Call 112") { _, _ ->
+                        context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:112")))
+                    }
+                    .setNeutralButton("Call 911") { _, _ ->
+                        context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:911")))
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+            .semantics { contentDescription = "SOS Emergency Help button" }
+    ) {
+        // Pulsing SOS badge
+        Box(
+            modifier = Modifier
+                .size(T.SosBadgeSize)
+                .scale(badgeScale)
+                .clip(RoundedCornerShape(T.SosBadgeCorner))
+                .background(T.RedHot),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "SOS",
+                fontFamily = BebasNeue,
+                fontSize = 14.sp,
+                letterSpacing = 1.sp,
+                color = Color.White
+            )
+        }
+
+        Spacer(Modifier.width(14.dp))
+
+        Column(Modifier.weight(1f)) {
+            Text("Immediate Emergency Help", fontFamily = Outfit, fontSize = T.SosTextSize, fontWeight = FontWeight.Bold, color = T.TextPrimary)
+            Spacer(Modifier.height(1.dp))
+            Text("Tap to call without logging in", fontFamily = Outfit, fontSize = T.SosSubTextSize, color = T.TextSecondary)
+        }
+
+        Icon(Icons.Rounded.ChevronRight, null, tint = T.TextSecondary.copy(0.4f), modifier = Modifier.size(18.dp))
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Utilities
+// ══════════════════════════════════════════════════════════════════════════════
+
 @Composable
 private fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier {
     val source = remember { MutableInteractionSource() }
-    return this.clickable(
-        interactionSource = source,
-        indication = null,
-        onClick = onClick
-    )
+    return clickable(interactionSource = source, indication = null, onClick = onClick)
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 // Previews
-// ═══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 
-@Preview(name = "Auth — Default Dark (Sign In)", showBackground = true, backgroundColor = 0xFF070A0F)
+@Preview(name = "RescueLink – Sign In", showBackground = true, backgroundColor = 0xFF0A0A0A)
 @Composable
-private fun PreviewAuthDefault() {
+private fun PreviewSignIn() {
     SOSTheme(darkTheme = true, dynamicColor = false) {
         AuthScreen(
             uiState = AuthUiState.Idle,
@@ -997,75 +1101,17 @@ private fun PreviewAuthDefault() {
     }
 }
 
-@Preview(name = "Auth — Loading State", showBackground = true, backgroundColor = 0xFF070A0F)
+@Preview(name = "RescueLink – Error State", showBackground = true, backgroundColor = 0xFF0A0A0A)
 @Composable
-private fun PreviewAuthLoading() {
-    SOSTheme(darkTheme = true, dynamicColor = false) {
-        AuthScreen(
-            uiState = AuthUiState.Loading,
-            formState = AuthFormState(email = "user@sos.app", password = "password123"),
-            onEmailChanged = {}, onPasswordChanged = {}, onDisplayNameChanged = {},
-            onConfirmPasswordChanged = {}, onTogglePasswordVisibility = {},
-            onToggleConfirmPasswordVisibility = {}, onSignIn = {}, onRegister = {},
-            onClearError = {}
-        )
-    }
-}
-
-@Preview(name = "Auth — Error State", showBackground = true, backgroundColor = 0xFF070A0F)
-@Composable
-private fun PreviewAuthError() {
+private fun PreviewError() {
     SOSTheme(darkTheme = true, dynamicColor = false) {
         AuthScreen(
             uiState = AuthUiState.Error("Invalid credentials. Please check your email and password."),
-            formState = AuthFormState(
-                email = "user@sos.app",
-                password = "wrong",
-                hasAttemptedSubmit = true,
-                passwordError = "Must be at least 8 characters"
-            ),
+            formState = AuthFormState(email = "user@sos.app", password = "wrong", hasAttemptedSubmit = true),
             onEmailChanged = {}, onPasswordChanged = {}, onDisplayNameChanged = {},
             onConfirmPasswordChanged = {}, onTogglePasswordVisibility = {},
             onToggleConfirmPasswordVisibility = {}, onSignIn = {}, onRegister = {},
             onClearError = {}
         )
-    }
-}
-
-@Preview(name = "Auth — Register Tab", showBackground = true, backgroundColor = 0xFF070A0F)
-@Composable
-private fun PreviewAuthRegister() {
-    SOSTheme(darkTheme = true, dynamicColor = false) {
-        // We preview the RegisterForm directly to pin the tab
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFF070A0F))
-                .padding(20.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            GlassAuthCard {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 28.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    AuthLogoHeader()
-                    Spacer(modifier = Modifier.height(24.dp))
-                    AuthTabRow(selectedTab = 1, onTabSelected = {})
-                    Spacer(modifier = Modifier.height(20.dp))
-                    RegisterForm(
-                        formState = AuthFormState(password = "Secur3!", passwordStrength = 3),
-                        isLoading = false,
-                        onDisplayNameChanged = {}, onEmailChanged = {},
-                        onPasswordChanged = {}, onConfirmPasswordChanged = {},
-                        onTogglePasswordVisibility = {},
-                        onToggleConfirmPasswordVisibility = {},
-                        onRegister = {}
-                    )
-                }
-            }
-        }
     }
 }

@@ -3,42 +3,25 @@ package com.example.sos.auth
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-// ── UI State (sealed) ─────────────────────────────────────────────────────────
+// ── UI State ──────────────────────────────────────────────────────────────────
 
-/**
- * Exhaustive set of states the Auth screen can be in.
- * Collected in Compose via collectAsStateWithLifecycle().
- */
 sealed class AuthUiState {
-    /** No pending operation — initial state and state after clearing an error. */
     object Idle : AuthUiState()
-
-    /** A sign-in or register coroutine is in-flight. */
     object Loading : AuthUiState()
-
-    /** The operation failed; [message] is a user-readable explanation. */
     data class Error(val message: String) : AuthUiState()
-
-    /** The operation succeeded; [destination] is the route to navigate to. */
     data class Success(val destination: String) : AuthUiState()
 }
 
 // ── Form State ────────────────────────────────────────────────────────────────
 
-/**
- * All mutable data that belongs to the auth form.
- * Stored as a single data class so it can be copied atomically.
- */
 data class AuthFormState(
-    // Login fields
+    // Shared fields
     val email: String = "",
     val emailError: String? = null,
     val password: String = "",
@@ -48,22 +31,29 @@ data class AuthFormState(
     // Register-only fields
     val displayName: String = "",
     val displayNameError: String? = null,
+    val phone: String = "",
+    val phoneError: String? = null,
     val confirmPassword: String = "",
     val confirmPasswordError: String? = null,
     val isConfirmPasswordVisible: Boolean = false,
+    val termsAccepted: Boolean = false,
 
-    // Password strength (0 = empty, 1 = weak … 4 = very strong)
+    // Password strength (0 = empty, 1–4 = weak…very strong)
     val passwordStrength: Int = 0,
 
-    // Becomes true only after first submit attempt — before that we don't
-    // show inline errors to avoid overwhelming a fresh form.
+    // Only show inline errors after first submit attempt
     val hasAttemptedSubmit: Boolean = false
 ) {
-    /** True when all visible fields pass validation. */
-    val isFormValid: Boolean
+    val isLoginFormValid: Boolean
         get() = emailError == null && passwordError == null &&
-                displayNameError == null && confirmPasswordError == null &&
                 email.isNotBlank() && password.isNotBlank()
+
+    val isRegisterFormValid: Boolean
+        get() = isLoginFormValid &&
+                displayNameError == null && phoneError == null &&
+                confirmPasswordError == null &&
+                displayName.isNotBlank() && phone.isNotBlank() &&
+                confirmPassword.isNotBlank() && termsAccepted
 }
 
 // ── ViewModel ─────────────────────────────────────────────────────────────────
@@ -78,26 +68,42 @@ class AuthViewModel(
     private val _formState = MutableStateFlow(AuthFormState())
     val formState: StateFlow<AuthFormState> = _formState.asStateFlow()
 
-    // ── Field update handlers ─────────────────────────────────────────────
+    private val _isLoginMode = MutableStateFlow(true)
+    val isLoginMode: StateFlow<Boolean> = _isLoginMode.asStateFlow()
+
+    // ── Tab toggle ────────────────────────────────────────────────────────
+
+    fun onToggleMode() {
+        _isLoginMode.update { !it }
+        _formState.update { AuthFormState() } // reset form on tab switch
+        _uiState.update { AuthUiState.Idle }
+    }
+
+    // ── Field handlers ────────────────────────────────────────────────────
 
     fun onEmailChanged(value: String) {
         _formState.update { it.copy(email = value) }
-        validateForm()
+        if (_formState.value.hasAttemptedSubmit) validateForm()
     }
 
     fun onPasswordChanged(value: String) {
         _formState.update { it.copy(password = value, passwordStrength = computeStrength(value)) }
-        validateForm()
+        if (_formState.value.hasAttemptedSubmit) validateForm()
     }
 
     fun onDisplayNameChanged(value: String) {
         _formState.update { it.copy(displayName = value) }
-        validateForm()
+        if (_formState.value.hasAttemptedSubmit) validateForm()
+    }
+
+    fun onPhoneChanged(value: String) {
+        _formState.update { it.copy(phone = value) }
+        if (_formState.value.hasAttemptedSubmit) validateForm()
     }
 
     fun onConfirmPasswordChanged(value: String) {
         _formState.update { it.copy(confirmPassword = value) }
-        validateForm()
+        if (_formState.value.hasAttemptedSubmit) validateForm()
     }
 
     fun onTogglePasswordVisibility() {
@@ -108,10 +114,12 @@ class AuthViewModel(
         _formState.update { it.copy(isConfirmPasswordVisible = !it.isConfirmPasswordVisible) }
     }
 
+    fun onTermsToggle() {
+        _formState.update { it.copy(termsAccepted = !it.termsAccepted) }
+    }
+
     fun clearError() {
-        if (_uiState.value is AuthUiState.Error) {
-            _uiState.update { AuthUiState.Idle }
-        }
+        if (_uiState.value is AuthUiState.Error) _uiState.update { AuthUiState.Idle }
     }
 
     // ── Auth actions ──────────────────────────────────────────────────────
@@ -120,7 +128,7 @@ class AuthViewModel(
         _formState.update { it.copy(hasAttemptedSubmit = true) }
         validateForm()
         val form = _formState.value
-        if (!form.isFormValid) return
+        if (!form.isLoginFormValid) return
 
         viewModelScope.launch {
             _uiState.update { AuthUiState.Loading }
@@ -132,13 +140,13 @@ class AuthViewModel(
 
     fun register() {
         _formState.update { it.copy(hasAttemptedSubmit = true) }
-        validateForm(isRegister = true)
+        validateForm()
         val form = _formState.value
-        if (!form.isFormValid || form.confirmPasswordError != null) return
+        if (!form.isRegisterFormValid) return
 
         viewModelScope.launch {
             _uiState.update { AuthUiState.Loading }
-            repository.register(form.email, form.password, form.displayName)
+            repository.register(form.email, form.password, form.displayName, form.phone)
                 .onSuccess { dest -> _uiState.update { AuthUiState.Success(dest) } }
                 .onFailure { e -> _uiState.update { AuthUiState.Error(e.message ?: "Registration failed") } }
         }
@@ -146,20 +154,17 @@ class AuthViewModel(
 
     // ── Validation ────────────────────────────────────────────────────────
 
-    /**
-     * Validates the current form state and writes inline error messages back to [_formState].
-     * Called on every keystroke so errors are shown eagerly after the first submit attempt.
-     */
-    fun validateForm(isRegister: Boolean = false) {
+    fun validateForm() {
         val form = _formState.value
-        // Only expose inline errors after the user has tried to submit at least once.
         val showErrors = form.hasAttemptedSubmit
+        val isRegister = !_isLoginMode.value
 
         _formState.update {
             it.copy(
                 emailError = if (showErrors) validateEmail(form.email) else null,
                 passwordError = if (showErrors) validatePassword(form.password) else null,
                 displayNameError = if (showErrors && isRegister) validateDisplayName(form.displayName) else null,
+                phoneError = if (showErrors && isRegister) validatePhone(form.phone) else null,
                 confirmPasswordError = if (showErrors && isRegister)
                     validateConfirmPassword(form.password, form.confirmPassword) else null
             )
@@ -186,16 +191,18 @@ class AuthViewModel(
         else -> null
     }
 
+    private fun validatePhone(phone: String): String? = when {
+        phone.isBlank() -> "Phone number is required"
+        phone.length < 6 -> "Enter a valid phone number"
+        else -> null
+    }
+
     private fun validateConfirmPassword(password: String, confirm: String): String? = when {
         confirm.isBlank() -> "Please confirm your password"
         confirm != password -> "Passwords do not match"
         else -> null
     }
 
-    /**
-     * Returns a score 0–4 for password strength:
-     * 0 = empty, 1 = weak, 2 = fair, 3 = strong, 4 = very strong.
-     */
     private fun computeStrength(password: String): Int {
         if (password.isEmpty()) return 0
         var score = 0
@@ -208,15 +215,7 @@ class AuthViewModel(
 
     // ── Factory ───────────────────────────────────────────────────────────
 
-    /**
-     * Provides AuthViewModel with a real [FirebaseAuthRepository].
-     * Use this in production; inject a fake in tests.
-     */
     companion object {
-        /**
-         * RFC-5321 compatible email pattern — pure JVM regex, safe in unit tests.
-         * (android.util.Patterns is null outside the Android runtime.)
-         */
         private val EMAIL_REGEX = Regex(
             "^[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}$"
         )
@@ -224,12 +223,7 @@ class AuthViewModel(
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return AuthViewModel(
-                    FirebaseAuthRepository(
-                        auth = FirebaseAuth.getInstance(),
-                        database = FirebaseDatabase.getInstance()
-                    )
-                ) as T
+                return AuthViewModel(FirebaseAuthRepository()) as T
             }
         }
     }

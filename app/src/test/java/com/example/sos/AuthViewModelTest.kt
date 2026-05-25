@@ -27,8 +27,14 @@ class FakeAuthRepository(
     private val registerResult: Result<String> = Result.success("dashboard")
 ) : AuthRepository {
     override suspend fun signIn(email: String, password: String): Result<String> = signInResult
-    override suspend fun register(email: String, password: String, displayName: String): Result<String> = registerResult
+    override suspend fun register(
+        email: String,
+        password: String,
+        displayName: String,
+        phone: String
+    ): Result<String> = registerResult
 }
+
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -143,10 +149,13 @@ class AuthViewModelTest {
     @Test
     fun `register with valid fields transitions to Success`() = runTest {
         val viewModel = AuthViewModel(FakeAuthRepository(registerResult = Result.success("dashboard")))
+        viewModel.onToggleMode() // switch to register mode
         viewModel.onDisplayNameChanged("Jane Doe")
         viewModel.onEmailChanged("jane@example.com")
+        viewModel.onPhoneChanged("+1234567890")
         viewModel.onPasswordChanged("Password1!")
         viewModel.onConfirmPasswordChanged("Password1!")
+        viewModel.onTermsToggle() // accept terms
         viewModel.register()
         advanceUntilIdle()
 
@@ -158,10 +167,13 @@ class AuthViewModelTest {
     @Test
     fun `register with mismatched passwords shows confirmPassword error`() = runTest {
         val viewModel = AuthViewModel(FakeAuthRepository())
+        viewModel.onToggleMode() // switch to register mode
         viewModel.onDisplayNameChanged("Jane Doe")
         viewModel.onEmailChanged("jane@example.com")
+        viewModel.onPhoneChanged("+1234567890")
         viewModel.onPasswordChanged("Password1!")
         viewModel.onConfirmPasswordChanged("Different!")
+        viewModel.onTermsToggle()
         viewModel.register()
         advanceUntilIdle()
 
