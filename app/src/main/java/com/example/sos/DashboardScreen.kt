@@ -6,10 +6,13 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.automirrored.rounded.Comment
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,54 +21,211 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import kotlinx.coroutines.delay
+import com.example.sos.ui.theme.*
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import com.example.sos.ui.theme.*
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  DESIGN TOKENS (Shared with AuthDesignTokens)
+//  DESIGN TOKENS  (mobile-optimised sizes)
 // ═══════════════════════════════════════════════════════════════════════════
 object DashboardTokens {
     val BlackCore = Color(0xFF080808)
-    val CardBg = Color(0xFF101010)
-    val CardBg2 = Color(0xFF141414)
-    val Rim = Color(0xFF1E1E1E)
-    val Rim2 = Color(0xFF2A2A2A)
+    val CardBg    = Color(0xFF101010)
+    val CardBg2   = Color(0xFF141414)
+    val Rim       = Color(0xFF1E1E1E)
+    val Rim2      = Color(0xFF2A2A2A)
     val WhitePure = Color(0xFFFFFFFF)
-    val White60 = Color(0x99FFFFFF)
-    val White35 = Color(0x59FFFFFF)
-    
-    val RedHot = AuthDesignTokens.RedHot // #E8001D
-    val RedDeep = AuthDesignTokens.RedDeep // #9B0013
-    val RedGlow = AuthDesignTokens.RedGlow // #FF1A35
-    val RedDim = Color(0x1EE8001D) // rgba(232,0,29,0.12)
-    val Green = Color(0xFF22C55E)
+    val White60   = Color(0x99FFFFFF)
+    val White35   = Color(0x59FFFFFF)
+    val White15   = Color(0x14FFFFFF)
+
+    val RedHot  = AuthDesignTokens.RedHot
+    val RedDeep = AuthDesignTokens.RedDeep
+    val RedGlow = AuthDesignTokens.RedGlow
+    val RedDim  = Color(0x1EE8001D)
+
+    val Green  = Color(0xFF22C55E)
     val Orange = Color(0xFFF59E0B)
-    val Blue = Color(0xFF3B82F6)
+    val Blue   = Color(0xFF3B82F6)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  UI STATE & VIEWMODEL
+//  DATA MODELS
 // ═══════════════════════════════════════════════════════════════════════════
-sealed class DashboardUiState {
-    object Loading : DashboardUiState()
-    data class Idle(val userName: String) : DashboardUiState()
-}
+data class Incident(
+    val id: String = "",
+    val title: String = "",
+    val subtitle: String = "",
+    val status: String = "active",   // active | resolved | pending
+    val timestamp: Long = 0L
+)
+
+data class CommunityPost(
+    val id: String = "",
+    val author: String = "",
+    val initials: String = "",
+    val timeAgo: String = "",
+    val content: String = "",
+    val likes: Int = 0,
+    val comments: Int = 0
+)
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  VIEWMODEL — real Firebase data
+// ═══════════════════════════════════════════════════════════════════════════
+data class DashboardState(
+    val userInitials: String = "·",
+    val incidents: List<Incident> = emptyList(),
+    val communityPosts: List<CommunityPost> = emptyList(),
+    val isLoadingIncidents: Boolean = true,
+    val isLoadingCommunity: Boolean = true,
+    val sosActive: Boolean = false
+)
 
 class DashboardViewModel : ViewModel() {
-    private val _uiState = MutableStateFlow<DashboardUiState>(DashboardUiState.Idle("Rahul"))
-    val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
+    private val _state = MutableStateFlow(DashboardState())
+    val state: StateFlow<DashboardState> = _state.asStateFlow()
+
+    private val auth = FirebaseAuth.getInstance()
+    private val db   = try { FirebaseDatabase.getInstance() } catch (e: Exception) { null }
+
+    private var incidentListener: ValueEventListener? = null
+    private var communityListener: ValueEventListener? = null
+
+    init {
+        loadUserInfo()
+        observeIncidents()
+        observeCommunityPosts()
+    }
+
+    // ── User ──────────────────────────────────────────────────────────────
+    private fun loadUserInfo() {
+        val user = auth.currentUser
+        val initials = when {
+            user?.displayName?.isNotBlank() == true ->
+                user.displayName!!.trim().split(" ")
+                    .filter { it.isNotEmpty() }
+                    .take(2)
+                    .joinToString("") { it.first().uppercase() }
+            user?.email?.isNotBlank() == true ->
+                user.email!!.first().uppercase()
+            else -> "·"
+        }
+        _state.value = _state.value.copy(userInitials = initials)
+    }
+
+    // ── Incidents (real-time) ─────────────────────────────────────────────
+    private fun observeIncidents() {
+        val uid = auth.currentUser?.uid ?: run {
+            _state.value = _state.value.copy(isLoadingIncidents = false)
+            return
+        }
+        val ref = db?.reference?.child("incidents")?.child(uid) ?: run {
+            _state.value = _state.value.copy(isLoadingIncidents = false)
+            return
+        }
+
+        incidentListener = object : ValueEventListener {
+            override fun onDataChange(snap: DataSnapshot) {
+                val list = snap.children.mapNotNull { child ->
+                    try {
+                        Incident(
+                            id       = child.key ?: "",
+                            title    = child.child("title").getValue(String::class.java) ?: "",
+                            subtitle = child.child("subtitle").getValue(String::class.java) ?: "",
+                            status   = child.child("status").getValue(String::class.java) ?: "active",
+                            timestamp= child.child("timestamp").getValue(Long::class.java) ?: 0L
+                        )
+                    } catch (e: Exception) { null }
+                }.sortedByDescending { it.timestamp }
+                _state.value = _state.value.copy(incidents = list, isLoadingIncidents = false)
+            }
+            override fun onCancelled(error: DatabaseError) {
+                _state.value = _state.value.copy(isLoadingIncidents = false)
+            }
+        }
+        ref.addValueEventListener(incidentListener!!)
+    }
+
+    // ── Community posts (real-time) ───────────────────────────────────────
+    private fun observeCommunityPosts() {
+        val ref = db?.reference?.child("community") ?: run {
+            _state.value = _state.value.copy(
+                isLoadingCommunity = false,
+                communityPosts = sampleCommunityPosts()
+            )
+            return
+        }
+
+        communityListener = object : ValueEventListener {
+            override fun onDataChange(snap: DataSnapshot) {
+                val list = snap.children.mapNotNull { child ->
+                    try {
+                        CommunityPost(
+                            id       = child.key ?: "",
+                            author   = child.child("author").getValue(String::class.java) ?: "User",
+                            initials = child.child("initials").getValue(String::class.java) ?: "U",
+                            timeAgo  = child.child("timeAgo").getValue(String::class.java) ?: "",
+                            content  = child.child("content").getValue(String::class.java) ?: "",
+                            likes    = child.child("likes").getValue(Long::class.java)?.toInt() ?: 0,
+                            comments = child.child("comments").getValue(Long::class.java)?.toInt() ?: 0
+                        )
+                    } catch (e: Exception) { null }
+                }
+                val finalList = if (list.isEmpty()) sampleCommunityPosts() else list
+                _state.value = _state.value.copy(communityPosts = finalList, isLoadingCommunity = false)
+            }
+            override fun onCancelled(error: DatabaseError) {
+                _state.value = _state.value.copy(
+                    communityPosts = sampleCommunityPosts(),
+                    isLoadingCommunity = false
+                )
+            }
+        }
+        ref.limitToLast(20).addValueEventListener(communityListener!!)
+    }
+
+    fun toggleSos() {
+        _state.value = _state.value.copy(sosActive = !_state.value.sosActive)
+    }
+
+    private fun sampleCommunityPosts() = listOf(
+        CommunityPost("1","Amit Sharma","AS","2h ago","Heavy traffic near Gandhinagar exit due to road work. Avoid service lane.",24,5),
+        CommunityPost("2","Priya Patel","PP","4h ago","Flat tyre repair stall available near NH-48 toll booth.",18,3),
+        CommunityPost("3","Raj Kumar","RK","Yesterday","Police checking going on near Ahmedabad bypass. Keep documents ready.",31,8)
+    )
+
+    override fun onCleared() {
+        val uid = auth.currentUser?.uid
+        incidentListener?.let {
+            uid?.let { id -> db?.reference?.child("incidents")?.child(id)?.removeEventListener(it) }
+        }
+        communityListener?.let {
+            db?.reference?.child("community")?.removeEventListener(it)
+        }
+        super.onCleared()
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -75,39 +235,41 @@ class DashboardViewModel : ViewModel() {
 @Composable
 fun DashboardScreen(
     onLogout: () -> Unit,
-    dashboardViewModel: DashboardViewModel = viewModel()
+    vm: DashboardViewModel = viewModel()
 ) {
-    val uiState by dashboardViewModel.uiState.collectAsStateWithLifecycle()
-    var currentRoute by remember { mutableStateOf("dashboard") }
+    val state by vm.state.collectAsStateWithLifecycle()
+    var currentRoute by remember { mutableStateOf("home") }
 
     Scaffold(
         containerColor = DashboardTokens.BlackCore,
-        bottomBar = { DashboardBottomNav(currentRoute) { currentRoute = it } },
-        contentWindowInsets = WindowInsets(0, 0, 0, 0)
-    ) { paddingValues ->
+        bottomBar = {
+            DashboardBottomNav(currentRoute) { currentRoute = it }
+        }
+    ) { innerPadding ->
+        // Background always behind everything
         Box(modifier = Modifier.fillMaxSize()) {
-            // Background Animation
             DashboardBackground()
-            
-            Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-                // TopBar
-                DashboardTopBar(onLogout = onLogout)
 
-                if (uiState is DashboardUiState.Idle) {
-                    val name = (uiState as DashboardUiState.Idle).userName
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(20.dp)
-                    ) {
-                        item { GreetingRow(name) }
-                        item { TowBanner() }
-                        item { StatCardsGrid() }
-                        item { MapCard() }
-                        item { NearbyServicesCard() }
-                        item { AiChatCard() }
-                        item { RecentIncidentsCard() }
-                        item { CommunityFeedCard() }
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)   // accounts for bottom nav height
+            ) {
+                DashboardTopBar(initials = state.userInitials, onLogout = onLogout)
+
+                AnimatedContent(
+                    targetState = currentRoute,
+                    transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(140)) },
+                    label = "route",
+                    modifier = Modifier.fillMaxSize()
+                ) { route ->
+                    when (route) {
+                        "home"      -> HomeScreen(state, vm::toggleSos)
+                        "map"       -> MapScreen()
+                        "community" -> CommunityScreen(state)
+                        "chat"      -> AiChatScreen()
+                        "more"      -> MoreScreen(onLogout)
+                        else        -> HomeScreen(state, vm::toggleSos)
                     }
                 }
             }
@@ -116,557 +278,917 @@ fun DashboardScreen(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  BACKGROUND & TOPBAR
+//  HOME SCREEN
 // ═══════════════════════════════════════════════════════════════════════════
 @Composable
-private fun DashboardBackground() {
-    val infiniteTransition = rememberInfiniteTransition(label = "breathe")
-    
-    val scale1 by infiniteTransition.animateFloat(
-        initialValue = 1f, targetValue = 1.12f,
-        animationSpec = infiniteRepeatable(tween(7000, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "s1"
-    )
-    val alpha1 by infiniteTransition.animateFloat(
-        initialValue = 0.05f, targetValue = 0.13f,
-        animationSpec = infiniteRepeatable(tween(7000, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "a1"
-    )
-    
-    val scale2 by infiniteTransition.animateFloat(
-        initialValue = 1f, targetValue = 1.12f,
-        animationSpec = infiniteRepeatable(tween(9000, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "s2"
-    )
-    val alpha2 by infiniteTransition.animateFloat(
-        initialValue = 0.05f, targetValue = 0.13f,
-        animationSpec = infiniteRepeatable(tween(9000, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "a2"
-    )
+private fun HomeScreen(state: DashboardState, onSosTap: () -> Unit) {
+    LazyColumn(
+        state = rememberLazyListState(),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item { HeroCard(state.sosActive, onSosTap) }
+        item { StatusStrip() }
+        item { ServiceHistorySection(state.incidents, state.isLoadingIncidents) }
+        item { ChatbotPreviewSection() }
+        item { Spacer(Modifier.height(4.dp)) }
+    }
+}
 
-    Box(Modifier.fillMaxSize()) {
-        // Blob 1 (Top Left)
+// ─────────────────────────────────────────────────────────────────────────────
+//  HERO CARD  (intro + SOS)
+// ─────────────────────────────────────────────────────────────────────────────
+@Composable
+private fun HeroCard(sosActive: Boolean, onSosTap: () -> Unit) {
+    val inf = rememberInfiniteTransition(label = "hero")
+    val glowAlpha by inf.animateFloat(0.3f, 0.7f,
+        infiniteRepeatable(tween(2800, easing = FastOutSlowInEasing), RepeatMode.Reverse), "glow")
+    val pulse by inf.animateFloat(0f, 1f,
+        infiniteRepeatable(tween(1200), RepeatMode.Restart), "pulse")
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(listOf(Color(0xFF180005), DashboardTokens.CardBg)),
+                RoundedCornerShape(16.dp)
+            )
+            .border(1.dp, DashboardTokens.Rim, RoundedCornerShape(16.dp))
+            .padding(14.dp)
+    ) {
+        // Glow blob
         Box(
             modifier = Modifier
-                .offset(x = (-100).dp, y = (-200).dp)
-                .size(600.dp)
-                .graphicsLayer { scaleX = scale1; scaleY = scale1; alpha = alpha1 }
-                .background(Brush.radialGradient(listOf(DashboardTokens.RedHot, Color.Transparent), radius = 800f))
+                .align(Alignment.TopEnd)
+                .size(90.dp)
+                .offset(x = 10.dp, y = (-10).dp)
+                .graphicsLayer { alpha = glowAlpha }
+                .background(Brush.radialGradient(
+                    listOf(DashboardTokens.RedHot.copy(0.22f), Color.Transparent)
+                ))
         )
-        // Blob 2 (Bottom Right)
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .offset(x = 100.dp, y = 100.dp)
-                .size(400.dp)
-                .graphicsLayer { scaleX = scale2; scaleY = scale2; alpha = alpha2 }
-                .background(Brush.radialGradient(listOf(DashboardTokens.RedDeep, Color.Transparent), radius = 600f))
-        )
-        // Grid Overlay
-        // Dot grid
-        Box(modifier = Modifier
-            .fillMaxSize()
-            .drawBehind {
-                val color = Color(0x06E8001D)
-                val cellPx = 48.dp.toPx()
-                var y = 0f
-                while (y < size.height) {
-                    drawLine(color, Offset(0f, y), Offset(size.width, y), 1f)
-                    y += cellPx
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Title
+            Column {
+                Text(
+                    "RescueLink",
+                    fontFamily = BebasNeueFontFamily,
+                    fontSize = 22.sp,
+                    letterSpacing = 1.sp,
+                    style = TextStyle(brush = Brush.linearGradient(
+                        listOf(Color.White, DashboardTokens.RedGlow)
+                    ))
+                )
+                Text(
+                    "Your emergency road assistant is active and ready.",
+                    fontFamily = OutfitFontFamily,
+                    fontSize = 12.sp,
+                    color = DashboardTokens.White60,
+                    lineHeight = 17.sp
+                )
+            }
+
+            // Status tags
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                StatusTag("🛡️ Active")
+                StatusTag("📍 GPS On")
+                StatusTag("🤖 AI Ready")
+            }
+
+            // SOS Button
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp)
+                    .background(
+                        Brush.linearGradient(
+                            if (sosActive)
+                                listOf(Color(0xFF3D0010), Color(0xFF1A0008))
+                            else
+                                listOf(DashboardTokens.RedHot, DashboardTokens.RedDeep)
+                        ),
+                        RoundedCornerShape(12.dp)
+                    )
+                    .border(
+                        1.dp,
+                        if (sosActive) DashboardTokens.RedHot else Color.Transparent,
+                        RoundedCornerShape(12.dp)
+                    )
+                    .clickable(onClick = onSosTap),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!sosActive) {
+                    Box(
+                        Modifier.fillMaxSize()
+                            .graphicsLayer { scaleX = 1f + pulse * 0.04f; scaleY = 1f + pulse * 0.04f; alpha = (1f - pulse) * 0.5f }
+                            .border(2.dp, DashboardTokens.RedHot, RoundedCornerShape(12.dp))
+                    )
                 }
-                var x = 0f
-                while (x < size.width) {
-                    drawLine(color, Offset(x, 0f), Offset(x, size.height), 1f)
-                    x += cellPx
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Warning, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Text(
+                        if (sosActive) "TAP TO CANCEL SOS" else "SEND SOS ALERT",
+                        fontFamily = OutfitFontFamily,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Color.White,
+                        letterSpacing = 1.sp
+                    )
                 }
             }
-        )
+        }
     }
 }
 
 @Composable
-private fun DashboardTopBar(onLogout: () -> Unit = {}) {
-    val pulseTransition = rememberInfiniteTransition(label = "pulse")
-    val dotAlpha by pulseTransition.animateFloat(
-        initialValue = 0.6f, targetValue = 0f,
-        animationSpec = infiniteRepeatable(tween(1400), RepeatMode.Restart), label = "dotAlpha"
+private fun StatusTag(text: String) {
+    Box(
+        modifier = Modifier
+            .background(DashboardTokens.RedDim, RoundedCornerShape(100.dp))
+            .border(1.dp, Color(0x28E8001D), RoundedCornerShape(100.dp))
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Text(text, fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.White60)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  STATUS STRIP
+// ─────────────────────────────────────────────────────────────────────────────
+@Composable
+private fun StatusStrip() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        StatusChip(Icons.Rounded.LocalGasStation, "Fuel",  "64%", DashboardTokens.Green,  Modifier.weight(1f))
+        StatusChip(Icons.Rounded.Speed,           "Tyre",  "32 PSI", DashboardTokens.Orange, Modifier.weight(1f))
+        StatusChip(Icons.Rounded.LocationOn,      "GPS",   "Active", DashboardTokens.Blue,   Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun StatusChip(icon: ImageVector, label: String, value: String, color: Color, modifier: Modifier) {
+    Column(
+        modifier = modifier
+            .background(DashboardTokens.CardBg, RoundedCornerShape(12.dp))
+            .border(1.dp, DashboardTokens.Rim, RoundedCornerShape(12.dp))
+            .padding(vertical = 10.dp, horizontal = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Icon(icon, null, tint = color, modifier = Modifier.size(16.dp))
+        Text(value, fontFamily = OutfitFontFamily, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text(label, fontFamily = OutfitFontFamily, fontSize = 9.sp, color = DashboardTokens.White35)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SERVICE HISTORY
+// ─────────────────────────────────────────────────────────────────────────────
+@Composable
+private fun ServiceHistorySection(incidents: List<Incident>, isLoading: Boolean) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        SectionHeader("Service History", "View All")
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(DashboardTokens.CardBg, RoundedCornerShape(14.dp))
+                .border(1.dp, DashboardTokens.Rim, RoundedCornerShape(14.dp))
+        ) {
+            when {
+                isLoading -> {
+                    Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(
+                            color = DashboardTokens.RedHot,
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp
+                        )
+                    }
+                }
+                incidents.isEmpty() -> {
+                    EmptyState("No service history yet", "Your incidents will appear here")
+                }
+                else -> {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                        incidents.forEachIndexed { idx, incident ->
+                            HistoryRow(incident)
+                            if (idx < incidents.lastIndex) {
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(vertical = 6.dp),
+                                    color = DashboardTokens.Rim,
+                                    thickness = 0.5.dp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryRow(incident: Incident) {
+    val dotColor = when (incident.status) {
+        "resolved" -> DashboardTokens.Green
+        "pending"  -> DashboardTokens.Orange
+        else       -> DashboardTokens.RedHot
+    }
+    val isLive = incident.status == "active"
+
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(7.dp).background(dotColor, CircleShape))
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                incident.title,
+                fontFamily = OutfitFontFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(incident.subtitle, fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.White60)
+        }
+        Spacer(Modifier.width(6.dp))
+        Text(
+            if (isLive) "Now" else formatTimestamp(incident.timestamp),
+            fontFamily = OutfitFontFamily,
+            fontSize = 9.sp,
+            color = if (isLive) DashboardTokens.RedHot else DashboardTokens.White35,
+            fontWeight = if (isLive) FontWeight.Bold else FontWeight.Normal
+        )
+    }
+}
+
+private fun formatTimestamp(ts: Long): String {
+    if (ts == 0L) return ""
+    val diff = System.currentTimeMillis() - ts
+    val hours = diff / 3_600_000
+    val days  = diff / 86_400_000
+    return when {
+        hours < 1  -> "Just now"
+        hours < 24 -> "${hours}h ago"
+        days < 30  -> "${days}d ago"
+        else       -> "${days / 30}mo ago"
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  CHATBOT PREVIEW
+// ─────────────────────────────────────────────────────────────────────────────
+@Composable
+private fun ChatbotPreviewSection() {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        SectionHeader("AI Emergency Assistant", "Open Chat")
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(DashboardTokens.CardBg, RoundedCornerShape(14.dp))
+                .border(1.dp, DashboardTokens.Rim, RoundedCornerShape(14.dp))
+                .padding(12.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // AI bubble
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .background(DashboardTokens.RedDim, CircleShape)
+                            .border(1.dp, Color(0x28E8001D), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.AutoMirrored.Rounded.Chat, null, tint = DashboardTokens.RedHot, modifier = Modifier.size(14.dp))
+                    }
+                    Box(
+                        modifier = Modifier
+                            .background(DashboardTokens.Rim2,
+                                RoundedCornerShape(topStart = 2.dp, topEnd = 10.dp, bottomStart = 10.dp, bottomEnd = 10.dp))
+                            .padding(9.dp)
+                    ) {
+                        Text(
+                            "I'm your AI road assistant. Need help with a breakdown, nearby services, or emergency guidance?",
+                            fontFamily = OutfitFontFamily, fontSize = 11.sp, color = Color.White, lineHeight = 16.sp
+                        )
+                    }
+                }
+
+                // Quick chips
+                Text("Quick actions:", fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.White35)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    QuickChip("🔧 Mechanic"); QuickChip("⛽ Fuel")
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    QuickChip("🚑 Hospital"); QuickChip("👮 Police")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickChip(text: String) {
+    Box(
+        modifier = Modifier
+            .background(DashboardTokens.CardBg2, RoundedCornerShape(8.dp))
+            .border(1.dp, DashboardTokens.Rim2, RoundedCornerShape(8.dp))
+            .clickable {}
+            .padding(horizontal = 9.dp, vertical = 5.dp)
+    ) {
+        Text(text, fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.White60)
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  MAP SCREEN
+// ═══════════════════════════════════════════════════════════════════════════
+@Composable
+private fun MapScreen() {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column {
+            Text("Map & Navigation", fontFamily = OutfitFontFamily, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+            Text("Locate nearby assistance", fontFamily = OutfitFontFamily, fontSize = 11.sp, color = DashboardTokens.White60)
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .clip(RoundedCornerShape(14.dp))
+                .border(1.dp, DashboardTokens.Rim, RoundedCornerShape(14.dp))
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize().background(Color(0xFF0C0C0C))) {
+                val step = 36.dp.toPx()
+                for (i in 0..30) {
+                    drawLine(Color(0x0AFFFFFF), Offset(i * step, 0f), Offset(i * step, size.height))
+                    drawLine(Color(0x0AFFFFFF), Offset(0f, i * step), Offset(size.width, i * step))
+                }
+                drawRect(Color(0xFF151515), Offset(0f, size.height * 0.42f), Size(size.width, 24.dp.toPx()))
+                drawRect(Color(0xFF151515), Offset(size.width * 0.52f, 0f), Size(18.dp.toPx(), size.height))
+                drawCircle(DashboardTokens.RedHot, 7.dp.toPx(), Offset(size.width * 0.42f, size.height * 0.44f))
+                drawCircle(DashboardTokens.Blue,   5.dp.toPx(), Offset(size.width * 0.72f, size.height * 0.24f))
+                drawCircle(DashboardTokens.Green,  5.dp.toPx(), Offset(size.width * 0.22f, size.height * 0.62f))
+                drawCircle(DashboardTokens.Orange, 5.dp.toPx(), Offset(size.width * 0.82f, size.height * 0.72f))
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter).fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.8f))))
+                    .padding(12.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.LocationOn, null, tint = DashboardTokens.RedHot, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(5.dp))
+                    Text("Near Ahmedabad Hwy, Gujarat", fontFamily = OutfitFontFamily, fontSize = 11.sp, color = Color.White)
+                    Spacer(Modifier.weight(1f))
+                    Text("Expand", fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.RedHot, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        SectionHeader("Nearby Assistance", "See All")
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ServiceCard("Mechanics", Icons.Rounded.Build,           DashboardTokens.Orange, "3 nearby")
+            ServiceCard("Fuel",      Icons.Rounded.LocalGasStation, DashboardTokens.Green,  "1.2 km")
+            ServiceCard("Hospital",  Icons.Rounded.MedicalServices, DashboardTokens.RedHot, "2.8 km")
+            ServiceCard("Police",    Icons.Rounded.Security,        DashboardTokens.Blue,   "0.9 km")
+        }
+    }
+}
+
+@Composable
+private fun ServiceCard(name: String, icon: ImageVector, color: Color, distance: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .background(DashboardTokens.CardBg2, RoundedCornerShape(12.dp))
+                .border(1.dp, DashboardTokens.Rim2, RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center
+        ) { Icon(icon, null, tint = color, modifier = Modifier.size(20.dp)) }
+        Spacer(Modifier.height(4.dp))
+        Text(name,     fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.White60)
+        Text(distance, fontFamily = OutfitFontFamily, fontSize = 9.sp,  color = color)
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  COMMUNITY SCREEN
+// ═══════════════════════════════════════════════════════════════════════════
+@Composable
+private fun CommunityScreen(state: DashboardState) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Community", fontFamily = OutfitFontFamily, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                    Text("Live updates from travellers", fontFamily = OutfitFontFamily, fontSize = 11.sp, color = DashboardTokens.White60)
+                }
+                Box(
+                    modifier = Modifier
+                        .background(DashboardTokens.RedHot, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                ) {
+                    Text("Post", fontFamily = OutfitFontFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            }
+        }
+
+        if (state.isLoadingCommunity) {
+            item {
+                Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = DashboardTokens.RedHot, modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
+                }
+            }
+        } else {
+            items(state.communityPosts) { post -> CommunityPostCard(post) }
+        }
+    }
+}
+
+@Composable
+private fun CommunityPostCard(post: CommunityPost) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(DashboardTokens.CardBg, RoundedCornerShape(14.dp))
+            .border(1.dp, DashboardTokens.Rim, RoundedCornerShape(14.dp))
+            .padding(12.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .background(DashboardTokens.RedDim, CircleShape)
+                        .border(1.dp, Color(0x28E8001D), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(post.initials, fontFamily = OutfitFontFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = DashboardTokens.RedHot)
+                }
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text(post.author,  fontFamily = OutfitFontFamily, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(post.timeAgo, fontFamily = OutfitFontFamily, fontSize = 9.sp,  color = DashboardTokens.White35)
+                }
+            }
+            Text(post.content, fontFamily = OutfitFontFamily, fontSize = 12.sp, color = DashboardTokens.WhitePure, lineHeight = 17.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.ThumbUp, null, tint = DashboardTokens.RedHot, modifier = Modifier.size(13.dp))
+                Spacer(Modifier.width(3.dp))
+                Text("${post.likes}",    fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.White60)
+                Spacer(Modifier.width(12.dp))
+                Icon(Icons.AutoMirrored.Rounded.Comment, null, tint = DashboardTokens.White35, modifier = Modifier.size(13.dp))
+                Spacer(Modifier.width(3.dp))
+                Text("${post.comments}", fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.White60)
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  AI CHAT SCREEN
+// ═══════════════════════════════════════════════════════════════════════════
+@Composable
+private fun AiChatScreen(
+    chatVm: ChatViewModel = viewModel()
+) {
+    val messages = chatVm.chatMessages
+    var input by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xD9080808))
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(DashboardTokens.RedDim, CircleShape)
+                    .border(1.dp, Color(0x38E8001D), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.AutoMirrored.Rounded.Chat, null, tint = DashboardTokens.RedHot, modifier = Modifier.size(18.dp))
+            }
+            Spacer(Modifier.width(10.dp))
+            Column {
+                Text("AI Emergency Assistant", fontFamily = OutfitFontFamily, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text("Online · Responds instantly", fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.Green)
+            }
+            Spacer(Modifier.weight(1f))
+            Text("History", fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.RedHot, fontWeight = FontWeight.Bold)
+        }
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+            reverseLayout = true,
+            contentPadding = PaddingValues(vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(messages.reversed()) { msg ->
+                val isAi = !msg.isUser
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = if (isAi) Arrangement.Start else Arrangement.End
+                ) {
+                    if (isAi) {
+                        Box(
+                            modifier = Modifier.size(24.dp).background(DashboardTokens.RedDim, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) { Icon(Icons.AutoMirrored.Rounded.Chat, null, tint = DashboardTokens.RedHot, modifier = Modifier.size(12.dp)) }
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Box(
+                        modifier = Modifier
+                            .widthIn(max = 240.dp)
+                            .background(
+                                if (isAi) DashboardTokens.CardBg2 else DashboardTokens.RedHot,
+                                RoundedCornerShape(
+                                    topStart = if (isAi) 2.dp else 10.dp,
+                                    topEnd = if (isAi) 10.dp else 2.dp,
+                                    bottomStart = 10.dp, bottomEnd = 10.dp
+                                )
+                            )
+                            .border(
+                                1.dp,
+                                if (isAi) DashboardTokens.Rim2 else Color.Transparent,
+                                RoundedCornerShape(
+                                    topStart = if (isAi) 2.dp else 10.dp,
+                                    topEnd = if (isAi) 10.dp else 2.dp,
+                                    bottomStart = 10.dp, bottomEnd = 10.dp
+                                )
+                            )
+                            .padding(9.dp)
+                    ) {
+                        Text(msg.text, fontFamily = OutfitFontFamily, fontSize = 12.sp, color = Color.White, lineHeight = 17.sp)
+                    }
+                }
+            }
+        }
+
+        // Input bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(DashboardTokens.CardBg)
+                .drawBehind {
+                    drawLine(
+                        DashboardTokens.Rim,
+                        Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()
+                    )
+                }
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = input,
+                onValueChange = { input = it },
+                placeholder = { Text("Ask anything...", fontSize = 12.sp, color = DashboardTokens.White35) },
+                modifier = Modifier.weight(1f).height(46.dp),
+                textStyle = TextStyle(fontFamily = OutfitFontFamily, fontSize = 12.sp, color = Color.White),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor   = DashboardTokens.CardBg2,
+                    unfocusedContainerColor = DashboardTokens.CardBg2,
+                    focusedBorderColor      = DashboardTokens.RedHot,
+                    unfocusedBorderColor    = DashboardTokens.Rim2
+                ),
+                shape = RoundedCornerShape(10.dp),
+                singleLine = true
+            )
+            Spacer(Modifier.width(7.dp))
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .background(
+                        Brush.linearGradient(listOf(DashboardTokens.RedHot, DashboardTokens.RedDeep)),
+                        RoundedCornerShape(10.dp)
+                    )
+                    .clickable {
+                        if (input.isNotBlank()) {
+                            chatVm.sendMessage(input)
+                            input = ""
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.AutoMirrored.Rounded.Send, null, tint = Color.White, modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  MORE SCREEN
+// ═══════════════════════════════════════════════════════════════════════════
+@Composable
+private fun MoreScreen(onLogout: () -> Unit) {
+    val auth = FirebaseAuth.getInstance()
+    val email = auth.currentUser?.email ?: "—"
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        item {
+            Text("Settings", fontFamily = OutfitFontFamily, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+            Spacer(Modifier.height(2.dp))
+            Text("Manage your preferences", fontFamily = OutfitFontFamily, fontSize = 11.sp, color = DashboardTokens.White60)
+        }
+
+        // Profile card — shows email, no username
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.linearGradient(listOf(Color(0xFF1A0005), DashboardTokens.CardBg)),
+                        RoundedCornerShape(14.dp)
+                    )
+                    .border(1.dp, DashboardTokens.Rim, RoundedCornerShape(14.dp))
+                    .padding(14.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .background(
+                                Brush.linearGradient(listOf(DashboardTokens.RedDeep, DashboardTokens.RedHot)),
+                                CircleShape
+                            )
+                            .border(2.dp, DashboardTokens.Rim2, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Rounded.Person, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text("Account", fontFamily = OutfitFontFamily, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text(email, fontFamily = OutfitFontFamily, fontSize = 11.sp, color = DashboardTokens.White60, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("Member", fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.RedHot, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+
+        item { MoreGroupLabel("Account") }
+        item { MoreRow(Icons.Rounded.Person,       "Edit Profile",         "Update your details") }
+        item { MoreRow(Icons.Rounded.Notifications,"Notifications",        "Manage alerts & sounds") }
+        item { MoreRow(Icons.Rounded.Security,     "Privacy & Security",   "Two-factor, data settings") }
+
+        item { MoreGroupLabel("Vehicle") }
+        item { MoreRow(Icons.Rounded.LocalShipping,"My Vehicle",           "Manage vehicle details") }
+        item { MoreRow(Icons.Rounded.Build,        "Service Records",      "View maintenance logs") }
+        item { MoreRow(Icons.Rounded.LocationOn,   "Emergency Contacts",   "SOS contact list") }
+
+        item { MoreGroupLabel("App") }
+        item { MoreRow(Icons.Rounded.Info,         "About RescueLink",     "Version 1.0.0") }
+        item { MoreRow(Icons.Rounded.ContactSupport,"Help & Support",      "FAQs and contact us") }
+
+        item { Spacer(Modifier.height(4.dp)) }
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(DashboardTokens.RedDim, RoundedCornerShape(12.dp))
+                    .border(1.dp, Color(0x38E8001D), RoundedCornerShape(12.dp))
+                    .clickable(onClick = onLogout)
+                    .padding(14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Sign Out", fontFamily = OutfitFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = DashboardTokens.RedHot)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoreGroupLabel(title: String) {
+    Text(
+        title,
+        fontFamily = OutfitFontFamily,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        color = DashboardTokens.White35,
+        letterSpacing = 1.sp,
+        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
     )
+}
+
+@Composable
+private fun MoreRow(icon: ImageVector, title: String, sub: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(DashboardTokens.CardBg, RoundedCornerShape(12.dp))
+            .border(1.dp, DashboardTokens.Rim, RoundedCornerShape(12.dp))
+            .clickable {}
+            .padding(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .background(DashboardTokens.CardBg2, RoundedCornerShape(9.dp))
+                    .border(1.dp, DashboardTokens.Rim2, RoundedCornerShape(9.dp)),
+                contentAlignment = Alignment.Center
+            ) { Icon(icon, null, tint = DashboardTokens.White60, modifier = Modifier.size(16.dp)) }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, fontFamily = OutfitFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                Text(sub,   fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.White35)
+            }
+            Icon(Icons.Rounded.ChevronRight, null, tint = DashboardTokens.White35, modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  BACKGROUND
+// ═══════════════════════════════════════════════════════════════════════════
+@Composable
+private fun DashboardBackground() {
+    val inf = rememberInfiniteTransition(label = "bg")
+    val a1 by inf.animateFloat(0.04f, 0.11f, infiniteRepeatable(tween(7000, easing = FastOutSlowInEasing), RepeatMode.Reverse), "a1")
+    val a2 by inf.animateFloat(0.04f, 0.09f, infiniteRepeatable(tween(9000, easing = FastOutSlowInEasing), RepeatMode.Reverse), "a2")
+    Box(Modifier.fillMaxSize()) {
+        Box(Modifier.offset((-70).dp, (-140).dp).size(400.dp).graphicsLayer { alpha = a1 }
+            .background(Brush.radialGradient(listOf(DashboardTokens.RedHot, Color.Transparent))))
+        Box(Modifier.align(Alignment.BottomEnd).offset(70.dp, 70.dp).size(280.dp).graphicsLayer { alpha = a2 }
+            .background(Brush.radialGradient(listOf(DashboardTokens.RedDeep, Color.Transparent))))
+        Box(Modifier.fillMaxSize().drawBehind {
+            val c = Color(0x05E8001D); val cell = 44.dp.toPx()
+            var y = 0f; while (y < size.height) { drawLine(c, Offset(0f, y), Offset(size.width, y), 1f); y += cell }
+            var x = 0f; while (x < size.width) { drawLine(c, Offset(x, 0f), Offset(x, size.height), 1f); x += cell }
+        })
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  TOP BAR
+// ═══════════════════════════════════════════════════════════════════════════
+@Composable
+private fun DashboardTopBar(initials: String, onLogout: () -> Unit) {
+    val inf = rememberInfiniteTransition(label = "topbar")
+    val dotAlpha by inf.animateFloat(1f, 0f, infiniteRepeatable(tween(1400), RepeatMode.Restart), "dot")
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(64.dp)
-            .background(Color(0xD8080808))
-            .padding(horizontal = 24.dp),
+            .height(52.dp)
+            .background(Color(0xD9080808))
+            .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column {
             Text(
-                text = "RescueLink",
+                "RescueLink",
                 fontFamily = BebasNeueFontFamily,
-                fontSize = 22.sp,
-                letterSpacing = 2.sp,
-                style = androidx.compose.ui.text.TextStyle(
-                    brush = Brush.linearGradient(listOf(Color.White, DashboardTokens.RedGlow))
-                )
+                fontSize = 18.sp,
+                letterSpacing = 1.5.sp,
+                style = TextStyle(brush = Brush.linearGradient(listOf(Color.White, DashboardTokens.RedGlow)))
             )
             Text(
-                text = "EMERGENCY ROAD ASSIST",
+                "EMERGENCY ROAD ASSIST",
                 fontFamily = OutfitFontFamily,
-                fontSize = 11.sp,
+                fontSize = 8.sp,
                 fontWeight = FontWeight.Medium,
                 color = DashboardTokens.White35,
                 letterSpacing = 0.5.sp
             )
         }
         Spacer(Modifier.weight(1f))
-        // Live Badge
+
+        // Live badge
         Row(
             modifier = Modifier
                 .background(DashboardTokens.RedDim, RoundedCornerShape(100.dp))
-                .border(1.dp, Color(0x40E8001D), RoundedCornerShape(100.dp))
-                .padding(horizontal = 14.dp, vertical = 6.dp),
+                .border(1.dp, Color(0x38E8001D), RoundedCornerShape(100.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                Modifier
-                    .size(7.dp)
-                    .graphicsLayer { alpha = dotAlpha }
-                    .background(DashboardTokens.RedHot, CircleShape)
-            )
-            Spacer(Modifier.width(7.dp))
-            Text("Live Tracking ON", fontFamily = OutfitFontFamily, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = DashboardTokens.RedHot)
+            Box(Modifier.size(5.dp).graphicsLayer { alpha = dotAlpha }.background(DashboardTokens.RedHot, CircleShape))
+            Spacer(Modifier.width(4.dp))
+            Text("Live", fontFamily = OutfitFontFamily, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, color = DashboardTokens.RedHot)
         }
-        Spacer(Modifier.width(10.dp))
-        // Notif Button
+        Spacer(Modifier.width(7.dp))
+
+        // Notifications
         Box(
-            modifier = Modifier
-                .size(40.dp)
-                .background(DashboardTokens.CardBg2, RoundedCornerShape(11.dp))
-                .border(1.dp, DashboardTokens.Rim2, RoundedCornerShape(11.dp)),
+            modifier = Modifier.size(32.dp)
+                .background(DashboardTokens.CardBg2, RoundedCornerShape(9.dp))
+                .border(1.dp, DashboardTokens.Rim2, RoundedCornerShape(9.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Rounded.Notifications, contentDescription = "Notifications", tint = DashboardTokens.White60, modifier = Modifier.size(20.dp))
-            Box(
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .offset((-8).dp, 8.dp)
-                    .size(7.dp)
-                    .background(DashboardTokens.RedHot, CircleShape)
-                    .border(1.5.dp, DashboardTokens.BlackCore, CircleShape)
-            )
+            Icon(Icons.Rounded.Notifications, null, tint = DashboardTokens.White60, modifier = Modifier.size(16.dp))
+            Box(Modifier.align(Alignment.TopEnd).offset((-5).dp, 5.dp).size(5.dp)
+                .background(DashboardTokens.RedHot, CircleShape)
+                .border(1.dp, DashboardTokens.BlackCore, CircleShape))
         }
-        Spacer(Modifier.width(8.dp))
-        // Logout Button
+        Spacer(Modifier.width(6.dp))
+
+        // Avatar — shows initials from Firebase auth, no username text
         Box(
-            modifier = Modifier
-                .size(40.dp)
-                .background(DashboardTokens.CardBg2, RoundedCornerShape(11.dp))
-                .border(1.dp, DashboardTokens.Rim2, RoundedCornerShape(11.dp))
+            modifier = Modifier.size(32.dp)
+                .background(Brush.linearGradient(listOf(DashboardTokens.RedDeep, DashboardTokens.RedHot)), CircleShape)
+                .border(1.5.dp, DashboardTokens.Rim2, CircleShape)
                 .clickable(onClick = onLogout),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Rounded.Logout, contentDescription = "Logout", tint = DashboardTokens.White60, modifier = Modifier.size(18.dp))
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  GREETING & SOS
-// ═══════════════════════════════════════════════════════════════════════════
-@Composable
-private fun GreetingRow(name: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Bottom
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Row {
-                Text("Good Evening, ", fontFamily = OutfitFontFamily, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = DashboardTokens.WhitePure)
-                Text(name, fontFamily = OutfitFontFamily, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = DashboardTokens.RedHot)
-                Text(" \uD83D\uDC4B", fontSize = 24.sp)
-            }
-            Text("Your vehicle is tracked & 3 mechanics are nearby. Stay safe.", fontFamily = OutfitFontFamily, fontSize = 13.sp, color = DashboardTokens.White60)
-        }
-        
-        // SOS Button
-        Button(
-            onClick = { /* Handle SOS */ },
-            modifier = Modifier.height(44.dp),
-            shape = RoundedCornerShape(13.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-            contentPadding = PaddingValues(horizontal = 22.dp)
-        ) {
-            Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(DashboardTokens.RedHot, DashboardTokens.RedDeep))), contentAlignment = Alignment.Center) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(8.dp).background(Color.White, CircleShape))
-                    Spacer(Modifier.width(10.dp))
-                    Text("SOS Emergency", fontFamily = OutfitFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                }
-            }
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  TOW BANNER
-// ═══════════════════════════════════════════════════════════════════════════
-@Composable
-private fun TowBanner() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Brush.linearGradient(listOf(Color(0x14E8001D), Color(0x1E9B0013))), RoundedCornerShape(14.dp))
-            .border(1.dp, Color(0x38E8001D), RoundedCornerShape(14.dp))
-            .padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier.size(42.dp).background(DashboardTokens.RedDim, RoundedCornerShape(12.dp)).border(1.dp, Color(0x33E8001D), RoundedCornerShape(12.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Rounded.LocalShipping, contentDescription = null, tint = DashboardTokens.RedHot, modifier = Modifier.size(20.dp))
-        }
-        Spacer(Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text("Tow Truck En Route — Sharma Towing Co.", fontFamily = OutfitFontFamily, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = DashboardTokens.WhitePure)
-            Text("Driver Vikram Singh • Mahindra Bolero Pickup • MH-12-AB-4321", fontFamily = OutfitFontFamily, fontSize = 12.sp, color = DashboardTokens.White60)
-            Spacer(Modifier.height(8.dp))
-            Box(Modifier.fillMaxWidth().height(3.dp).background(DashboardTokens.Rim2, CircleShape)) {
-                Box(Modifier.fillMaxWidth(0.62f).fillMaxHeight().background(Brush.horizontalGradient(listOf(DashboardTokens.RedHot, DashboardTokens.RedGlow)), CircleShape))
-            }
-        }
-        Spacer(Modifier.width(16.dp))
-        Column(
-            modifier = Modifier.background(DashboardTokens.RedDim, RoundedCornerShape(10.dp)).border(1.dp, Color(0x33E8001D), RoundedCornerShape(10.dp)).padding(horizontal = 14.dp, vertical = 6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text("12", fontFamily = BebasNeueFontFamily, fontSize = 24.sp, color = DashboardTokens.RedHot)
-            Text("MIN ETA", fontFamily = OutfitFontFamily, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = DashboardTokens.White35, letterSpacing = 1.sp)
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  STAT CARDS (2x2 Grid for Mobile)
-// ═══════════════════════════════════════════════════════════════════════════
-@Composable
-private fun StatCardsGrid() {
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            StatCard(modifier = Modifier.weight(1f), icon = Icons.Rounded.Build, value = "3", label = "Mechanics Nearby", change = "↑ 2 new", isUp = true)
-            StatCard(modifier = Modifier.weight(1f), icon = Icons.Rounded.LocalShipping, value = "1", label = "Active Tow Request", change = "In Progress", isUp = true, customColor = DashboardTokens.Orange)
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            StatCard(modifier = Modifier.weight(1f), icon = Icons.Rounded.People, value = "24", label = "Community Members", change = "↑ 5 online", isUp = true)
-            StatCard(modifier = Modifier.weight(1f), icon = Icons.Rounded.Warning, value = "7", label = "Total Past Incidents", change = "last: 3d ago", isUp = false)
-        }
-    }
-}
-
-@Composable
-private fun StatCard(modifier: Modifier = Modifier, icon: androidx.compose.ui.graphics.vector.ImageVector, value: String, label: String, change: String, isUp: Boolean, customColor: Color? = null) {
-    val mainColor = customColor ?: DashboardTokens.RedHot
-    Box(
-        modifier = modifier
-            .background(DashboardTokens.CardBg, RoundedCornerShape(16.dp))
-            .border(1.dp, DashboardTokens.Rim, RoundedCornerShape(16.dp))
-            .padding(18.dp)
-    ) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Brush.horizontalGradient(listOf(Color.Transparent, DashboardTokens.RedHot.copy(alpha = 0.4f), Color.Transparent))).align(Alignment.TopCenter))
-        
-        Column {
-            Box(Modifier.size(38.dp).background(DashboardTokens.RedDim, RoundedCornerShape(10.dp)).border(1.dp, Color(0x2EE8001D), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-                Icon(icon, contentDescription = null, tint = mainColor, modifier = Modifier.size(18.dp))
-            }
-            Spacer(Modifier.height(14.dp))
-            Text(value, fontFamily = BebasNeueFontFamily, fontSize = 34.sp, color = DashboardTokens.WhitePure, lineHeight = 34.sp)
-            Text(label, fontFamily = OutfitFontFamily, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = DashboardTokens.White60)
-        }
-        
-        val changeBg = if (isUp) (customColor ?: DashboardTokens.Green).copy(alpha = 0.1f) else DashboardTokens.RedDim
-        val changeColor = if (isUp) (customColor ?: DashboardTokens.Green) else DashboardTokens.RedHot
-        Text(
-            text = change,
-            fontFamily = OutfitFontFamily, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = changeColor,
-            modifier = Modifier.align(Alignment.TopEnd).background(changeBg, RoundedCornerShape(100.dp)).padding(horizontal = 8.dp, vertical = 3.dp)
-        )
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  MAP CARD
-// ═══════════════════════════════════════════════════════════════════════════
-@Composable
-private fun MapCard() {
-    val infiniteTransition = rememberInfiniteTransition(label = "mapAnimations")
-    val pinOffset by infiniteTransition.animateFloat(initialValue = 0f, targetValue = -8f, animationSpec = infiniteRepeatable(tween(1000, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pin")
-    val ringRadius by infiniteTransition.animateFloat(initialValue = 18f, targetValue = 38f, animationSpec = infiniteRepeatable(tween(2500, easing = LinearOutSlowInEasing)), label = "ringR")
-    val ringAlpha by infiniteTransition.animateFloat(initialValue = 0.6f, targetValue = 0f, animationSpec = infiniteRepeatable(tween(2500, easing = LinearOutSlowInEasing)), label = "ringA")
-    val towTruckX by infiniteTransition.animateFloat(initialValue = 0f, targetValue = 40f, animationSpec = infiniteRepeatable(tween(3000, easing = LinearEasing), RepeatMode.Reverse), label = "towTruck")
-
-    Column(
-        modifier = Modifier.fillMaxWidth().background(DashboardTokens.CardBg, RoundedCornerShape(16.dp)).border(1.dp, DashboardTokens.Rim, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp))
-    ) {
-        // Header
-        Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column {
-                Text("Live Location Map", fontFamily = OutfitFontFamily, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = DashboardTokens.WhitePure)
-                Text("NH-48, Near Mansa, Gujarat", fontFamily = OutfitFontFamily, fontSize = 11.sp, color = DashboardTokens.White35)
-            }
-            Row(modifier = Modifier.background(DashboardTokens.RedDim, RoundedCornerShape(100.dp)).border(1.dp, Color(0x40E8001D), RoundedCornerShape(100.dp)).padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(7.dp).background(DashboardTokens.RedHot, CircleShape))
-                Spacer(Modifier.width(5.dp))
-                Text("GPS Active", fontFamily = OutfitFontFamily, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = DashboardTokens.RedHot)
-            }
-        }
-        HorizontalDivider(color = DashboardTokens.Rim)
-        
-        // Canvas Map
-        Box(modifier = Modifier.fillMaxWidth().height(220.dp).background(Color(0xFF0D0D0D))) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val w = size.width
-                val h = size.height
-                
-                // Main Roads
-                drawPath(Path().apply { moveTo(0f, h/2); quadraticTo(w*0.25f, h*0.4f, w/2, h/2); quadraticTo(w*0.75f, h*0.6f, w, h/2) }, DashboardTokens.Rim2, style = Stroke(width = 14.dp.toPx()))
-                drawPath(Path().apply { moveTo(w/2, 0f); quadraticTo(w*0.45f, h*0.25f, w/2, h/2); quadraticTo(w*0.55f, h*0.75f, w/2, h) }, DashboardTokens.Rim2, style = Stroke(width = 14.dp.toPx()))
-                
-                // Dash lines
-                drawPath(Path().apply { moveTo(0f, h/2); quadraticTo(w*0.25f, h*0.4f, w/2, h/2); quadraticTo(w*0.75f, h*0.6f, w, h/2) }, DashboardTokens.RedDim, style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))))
-                drawPath(Path().apply { moveTo(w/2, 0f); quadraticTo(w*0.45f, h*0.25f, w/2, h/2); quadraticTo(w*0.55f, h*0.75f, w/2, h) }, DashboardTokens.RedDim, style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))))
-                
-                // User Location
-                val cx = w/2; val cy = h/2
-                drawCircle(DashboardTokens.RedHot.copy(alpha = ringAlpha), radius = ringRadius.dp.toPx(), center = Offset(cx, cy), style = Stroke(width = 1.5.dp.toPx()))
-                
-                // Bouncing Pin
-                drawCircle(DashboardTokens.RedHot.copy(alpha = 0.2f), radius = 10.dp.toPx(), center = Offset(cx, cy + pinOffset))
-                drawCircle(DashboardTokens.RedHot, radius = 5.dp.toPx(), center = Offset(cx, cy + pinOffset))
-                drawCircle(Color.White, radius = 2.dp.toPx(), center = Offset(cx, cy + pinOffset))
-                
-                // Mechanics Mock
-                drawRoundRect(DashboardTokens.Green.copy(alpha = 0.2f), topLeft = Offset(cx - 70.dp.toPx(), cy - 40.dp.toPx()), size = androidx.compose.ui.geometry.Size(22.dp.toPx(), 22.dp.toPx()), cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx()), style = Stroke(width = 1.5.dp.toPx()))
-                drawRoundRect(DashboardTokens.Green.copy(alpha = 0.2f), topLeft = Offset(cx + 60.dp.toPx(), cy - 30.dp.toPx()), size = androidx.compose.ui.geometry.Size(22.dp.toPx(), 22.dp.toPx()), cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx()), style = Stroke(width = 1.5.dp.toPx()))
-                
-                // Tow Truck Mock (Moving)
-                drawRoundRect(DashboardTokens.RedHot.copy(alpha = 0.2f), topLeft = Offset(cx - 50.dp.toPx() + towTruckX.dp.toPx(), cy - 10.dp.toPx()), size = androidx.compose.ui.geometry.Size(22.dp.toPx(), 22.dp.toPx()), cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx()), style = Stroke(width = 1.5.dp.toPx()))
-            }
-            
-            // Legend
-            Row(modifier = Modifier.align(Alignment.BottomStart).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MapLegendItem(DashboardTokens.RedHot, "You")
-                MapLegendItem(DashboardTokens.Green, "Mechanic")
-                MapLegendItem(DashboardTokens.Orange, "Tow Truck")
-            }
-        }
-    }
-}
-
-@Composable
-private fun MapLegendItem(color: Color, label: String) {
-    Row(modifier = Modifier.background(Color(0xCC080808), RoundedCornerShape(100.dp)).border(1.dp, DashboardTokens.Rim2, RoundedCornerShape(100.dp)).padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(7.dp).background(color, CircleShape))
-        Spacer(Modifier.width(5.dp))
-        Text(label, fontFamily = OutfitFontFamily, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = DashboardTokens.White60)
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  NEARBY SERVICES & LISTS
-// ═══════════════════════════════════════════════════════════════════════════
-@Composable
-private fun NearbyServicesCard() {
-    CardContainer("Nearby Services", "See All") {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            ServiceRow(Icons.Rounded.Build, "Patel Auto Workshop", "★★★★★  Open Now", "1.2 km", "~4 min", DashboardTokens.Green)
-            ServiceRow(Icons.Rounded.Build, "Singh Motors & Repair", "★★★★☆  Open Now", "2.8 km", "~9 min", DashboardTokens.Green)
-            ServiceRow(Icons.Rounded.LocalShipping, "Sharma Towing Co.", "★★★★★  En Route", "Active", "12 min ETA", DashboardTokens.RedHot)
-            ServiceRow(Icons.Rounded.LocalGasStation, "NH-48 Petrol Station", "★★★☆☆  24 hrs", "0.8 km", "~2 min", DashboardTokens.Blue)
-        }
-    }
-}
-
-@Composable
-private fun ServiceRow(icon: androidx.compose.ui.graphics.vector.ImageVector, name: String, meta: String, dist: String, eta: String, color: Color) {
-    Row(modifier = Modifier.fillMaxWidth().background(DashboardTokens.CardBg2, RoundedCornerShape(12.dp)).border(1.dp, DashboardTokens.Rim, RoundedCornerShape(12.dp)).padding(11.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(36.dp).background(color.copy(alpha=0.1f), RoundedCornerShape(10.dp)).border(1.dp, color.copy(alpha=0.2f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(17.dp))
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(name, fontFamily = OutfitFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DashboardTokens.WhitePure, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(meta, fontFamily = OutfitFontFamily, fontSize = 11.sp, color = DashboardTokens.White35)
-        }
-        Column(horizontalAlignment = Alignment.End) {
-            Text(dist, fontFamily = OutfitFontFamily, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = if(dist=="Active") DashboardTokens.Orange else DashboardTokens.RedHot)
-            Text(eta, fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.White35)
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  AI CHAT
-// ═══════════════════════════════════════════════════════════════════════════
-@Composable
-private fun AiChatCard() {
-    var inputText by remember { mutableStateOf("") }
-    var messages by remember { mutableStateOf(listOf(
-        Pair("ai", "Hey Rahul! I see your vehicle is stopped on NH-48. I've already dispatched the nearest tow truck. How can I help further?"),
-        Pair("user", "Engine won't start. Battery or alternator?"),
-        Pair("ai", "Likely dead battery. Try jump-starting — I've notified Patel Auto Workshop 1.2km away. They can assist in ~4 min!")
-    )) }
-
-    CardContainer("AI Assistant", badge = "RESCUE AI • Online") {
-        Column(modifier = Modifier.height(260.dp)) {
-            // Messages
-            LazyColumn(modifier = Modifier.weight(1f).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(messages) { (sender, text) ->
-                    val isAi = sender == "ai"
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = if (isAi) 0.dp else 16.dp), horizontalAlignment = if (isAi) Alignment.Start else Alignment.End) {
-                        Text(if (isAi) "RESCUE AI" else "YOU", fontFamily = OutfitFontFamily, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = DashboardTokens.White35, letterSpacing = 0.5.sp)
-                        Spacer(Modifier.height(4.dp))
-                        val bubbleShape = RoundedCornerShape(12.dp, 12.dp, if(isAi) 12.dp else 4.dp, if(isAi) 4.dp else 12.dp)
-                        Box(modifier = Modifier
-                            .background(
-                                if (isAi) DashboardTokens.CardBg2 else Color.Transparent,
-                                bubbleShape
-                            )
-                            .then(
-                                if (!isAi) Modifier.background(
-                                    Brush.linearGradient(listOf(DashboardTokens.RedHot, DashboardTokens.RedDeep)),
-                                    bubbleShape
-                                ) else Modifier
-                            )
-                            .border(1.dp, if(isAi) DashboardTokens.Rim2 else Color.Transparent, bubbleShape)
-                            .padding(9.dp)) {
-                            Text(text, fontFamily = OutfitFontFamily, fontSize = 12.sp, color = DashboardTokens.WhitePure)
-                        }
-                    }
-                }
-            }
-            HorizontalDivider(color = DashboardTokens.Rim)
-            // Input
-            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = inputText, onValueChange = { inputText = it },
-                    modifier = Modifier.weight(1f).height(46.dp),
-                    placeholder = { Text("Ask anything...", fontFamily = OutfitFontFamily, fontSize = 13.sp, color = DashboardTokens.White35) },
-                    textStyle = androidx.compose.ui.text.TextStyle(fontFamily = OutfitFontFamily, fontSize = 13.sp, color = DashboardTokens.WhitePure),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = DashboardTokens.CardBg2, unfocusedContainerColor = DashboardTokens.CardBg2,
-                        focusedBorderColor = DashboardTokens.RedHot, unfocusedBorderColor = DashboardTokens.Rim2,
-                    ),
-                    shape = RoundedCornerShape(10.dp)
-                )
-                Spacer(Modifier.width(8.dp))
-                IconButton(
-                    onClick = { if (inputText.isNotBlank()) { messages = messages + Pair("user", inputText); inputText = "" } },
-                    modifier = Modifier.size(46.dp).background(Brush.linearGradient(listOf(DashboardTokens.RedHot, DashboardTokens.RedDeep)), RoundedCornerShape(10.dp))
-                ) {
-                    Icon(Icons.Rounded.Send, contentDescription = "Send", tint = Color.White, modifier = Modifier.size(18.dp))
-                }
-            }
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  RECENT INCIDENTS & COMMUNITY FEED
-// ═══════════════════════════════════════════════════════════════════════════
-@Composable
-private fun RecentIncidentsCard() {
-    CardContainer("Recent Incidents", "View All") {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            IncidentRow(DashboardTokens.RedHot, "Engine Breakdown — NH-48", "Tow requested • Sharma Towing", "Now")
-            IncidentRow(DashboardTokens.Green, "Flat Tyre — Ahmedabad Highway", "Resolved by Patel Workshop", "3d ago")
-            IncidentRow(DashboardTokens.Green, "Fuel Empty — Gandhinagar Rd", "Community help — Amit S.", "9d ago")
-            IncidentRow(DashboardTokens.Orange, "Battery Dead — Ring Road", "Jump-start requested", "14d ago")
-        }
-    }
-}
-
-@Composable
-private fun IncidentRow(statusColor: Color, title: String, sub: String, time: String) {
-    Row(modifier = Modifier.fillMaxWidth().background(DashboardTokens.CardBg2, RoundedCornerShape(12.dp)).border(1.dp, DashboardTokens.Rim, RoundedCornerShape(12.dp)).padding(11.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(8.dp).background(statusColor, CircleShape))
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, fontFamily = OutfitFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DashboardTokens.WhitePure)
-            Text(sub, fontFamily = OutfitFontFamily, fontSize = 11.sp, color = DashboardTokens.White35)
-        }
-        Text(time, fontFamily = OutfitFontFamily, fontSize = 11.sp, color = DashboardTokens.White35)
-    }
-}
-
-@Composable
-private fun CommunityFeedCard() {
-    CardContainer("Community Feed", "See All") {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            CommunityRow("AS", "Amit Shah", "2 min ago", "Traffic jam on NH-48 near Mansa — accident reported ahead. Suggest alternate route via SH-41.", 14, DashboardTokens.RedDeep)
-            CommunityRow("PV", "Priya Verma", "18 min ago", "Anyone near Mahesana knows a good diesel mechanic? My truck won't start after refueling.", 3, DashboardTokens.Green)
-            CommunityRow("RD", "Ravi Desai", "1 hr ago", "Pothole alert! Big crater on SH-41 km 34. Drive carefully at night.", 29, DashboardTokens.Blue)
-        }
-    }
-}
-
-@Composable
-private fun CommunityRow(initials: String, name: String, time: String, msg: String, upvotes: Int, color: Color) {
-    Row(modifier = Modifier.fillMaxWidth().background(DashboardTokens.CardBg2, RoundedCornerShape(12.dp)).border(1.dp, DashboardTokens.Rim, RoundedCornerShape(12.dp)).padding(11.dp), verticalAlignment = Alignment.Top) {
-        Box(Modifier.size(30.dp).background(Brush.linearGradient(listOf(color.copy(alpha=0.5f), color)), CircleShape), contentAlignment = Alignment.Center) {
             Text(initials, fontFamily = OutfitFontFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
         }
-        Spacer(Modifier.width(10.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(name, fontFamily = OutfitFontFamily, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DashboardTokens.WhitePure)
-                Text(time, fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.White35)
-            }
-            Text(msg, fontFamily = OutfitFontFamily, fontSize = 12.sp, color = DashboardTokens.White60, lineHeight = 16.sp, modifier = Modifier.padding(vertical = 4.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text("▲ $upvotes helpful", fontFamily = OutfitFontFamily, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = DashboardTokens.White35)
-        }
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  HELPERS & BOTTOM NAV
+//  SHARED HELPERS
 // ═══════════════════════════════════════════════════════════════════════════
 @Composable
-private fun CardContainer(title: String, actionText: String? = null, badge: String? = null, content: @Composable () -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().background(DashboardTokens.CardBg, RoundedCornerShape(16.dp)).border(1.dp, DashboardTokens.Rim, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp))) {
-        Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column {
-                Text(title, fontFamily = OutfitFontFamily, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = DashboardTokens.WhitePure)
-                if (badge != null) Text(badge, fontFamily = OutfitFontFamily, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = DashboardTokens.White35)
-            }
-            if (actionText != null) Text(actionText, fontFamily = OutfitFontFamily, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = DashboardTokens.RedHot)
-            if (badge != null) Box(Modifier.size(8.dp).background(DashboardTokens.Green, CircleShape))
-        }
-        HorizontalDivider(color = DashboardTokens.Rim)
-        content()
+private fun SectionHeader(title: String, action: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(title,  fontFamily = OutfitFontFamily, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text(action, fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.RedHot, fontWeight = FontWeight.Bold)
     }
 }
 
+@Composable
+private fun EmptyState(title: String, subtitle: String) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Icon(Icons.Rounded.History, null, tint = DashboardTokens.White35, modifier = Modifier.size(28.dp))
+        Text(title,    fontFamily = OutfitFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DashboardTokens.White60)
+        Text(subtitle, fontFamily = OutfitFontFamily, fontSize = 11.sp, color = DashboardTokens.White35)
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  BOTTOM NAV
+// ═══════════════════════════════════════════════════════════════════════════
 @Composable
 private fun DashboardBottomNav(currentRoute: String, onRoute: (String) -> Unit) {
-    NavigationBar(containerColor = DashboardTokens.CardBg, tonalElevation = 0.dp, modifier = Modifier.border(1.dp, DashboardTokens.Rim)) {
+    NavigationBar(
+        containerColor = DashboardTokens.CardBg,
+        tonalElevation = 0.dp,
+        modifier = Modifier
+            .height(58.dp)
+            .drawBehind {
+                drawLine(DashboardTokens.Rim, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx())
+            }
+    ) {
         val items = listOf(
-            Triple("dashboard", Icons.Rounded.Home, "Dashboard"),
-            Triple("map", Icons.Rounded.Map, "Map"),
-            Triple("community", Icons.Rounded.People, "Community"),
-            Triple("chat", Icons.Rounded.Chat, "AI Chat"),
-            Triple("more", Icons.Rounded.Menu, "More")
+            Triple("home",      Icons.Rounded.Home,                  "Home"),
+            Triple("map",       Icons.Rounded.Map,                   "Map"),
+            Triple("community", Icons.Rounded.People,                "Community"),
+            Triple("chat",      Icons.AutoMirrored.Rounded.Chat,     "AI Chat"),
+            Triple("more",      Icons.Rounded.Menu,                  "More")
         )
         items.forEach { (route, icon, label) ->
-            val isSelected = currentRoute == route
+            val selected = currentRoute == route
             NavigationBarItem(
-                selected = isSelected,
-                onClick = { onRoute(route) },
-                icon = { Icon(icon, contentDescription = label) },
-                label = { Text(label, fontFamily = OutfitFontFamily, fontSize = 10.sp) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = DashboardTokens.RedHot,
+                selected = selected,
+                onClick  = { onRoute(route) },
+                icon     = { Icon(icon, label, modifier = Modifier.size(19.dp)) },
+                label    = { Text(label, fontFamily = OutfitFontFamily, fontSize = 8.sp) },
+                colors   = NavigationBarItemDefaults.colors(
+                    selectedIconColor   = DashboardTokens.RedHot,
                     unselectedIconColor = DashboardTokens.White35,
-                    selectedTextColor = DashboardTokens.RedHot,
+                    selectedTextColor   = DashboardTokens.RedHot,
                     unselectedTextColor = DashboardTokens.White35,
-                    indicatorColor = DashboardTokens.RedDim
+                    indicatorColor      = DashboardTokens.RedDim
                 )
             )
         }

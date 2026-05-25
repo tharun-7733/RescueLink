@@ -50,18 +50,18 @@ object AuthDesignTokens {
     val TextHint       = Color(0x33FFFFFF)   // 20% white
     val TextLabel      = Color(0x73FFFFFF)   // 45% white
 
-    val BrandNameSize   = 46.sp
-    val BrandTagSize    = 11.sp
-    val AppNameSize     = 24.sp
+    val BrandNameSize   = 36.sp   // was 46sp – reduced to fit screen
+    val BrandTagSize    = 10.sp
+    val AppNameSize     = 20.sp
     val SubtitleSize    = 12.sp
-    val CardTitleSize   = 22.sp
-    val CardSubSize     = 13.sp
-    val TabLabelSize    = 13.sp
+    val CardTitleSize   = 18.sp   // was 22sp
+    val CardSubSize     = 12.sp   // was 13sp
+    val TabLabelSize    = 12.sp   // was 13sp
     val ErrorTextSize   = 11.sp
-    val ErrorBannerTextSize = 13.sp
-    val PillTextSize    = 11.sp
-    val SosTextSize     = 13.sp
-    val SosSubTextSize  = 11.sp
+    val ErrorBannerTextSize = 12.sp
+    val PillTextSize    = 10.sp
+    val SosTextSize     = 12.sp
+    val SosSubTextSize  = 10.sp
 
     // ── Input fields ──────────────────────────────────────────────────────
     val FieldFill      = Color(0xFF1A1A1A)
@@ -81,13 +81,13 @@ object AuthDesignTokens {
     val ErrorBannerCorner = 10.dp
 
     // ── Hero icon ─────────────────────────────────────────────────────────
-    val HeroRingSize     = 88.dp
-    val HeroRingCorner   = 26.dp
+    val HeroRingSize     = 64.dp   // was 88dp – reduced to fit screen
+    val HeroRingCorner   = 18.dp
     val HeroRingBg1      = Color(0xFF1E0007)
     val HeroRingBg2      = Color(0xFF2D0009)
     val HeroRingBorder   = Color(0xFFE8001D).copy(alpha = 0.35f)
-    val HeroIconSize     = 44.dp
-    val PulseDotSize     = 18.dp
+    val HeroIconSize     = 32.dp   // was 44dp
+    val PulseDotSize     = 13.dp   // was 18dp
     val PulseDotColor    = Color(0xFFE8001D)
 
     // ── Logo (legacy circular rings) ──────────────────────────────────────
@@ -98,19 +98,19 @@ object AuthDesignTokens {
     val LogoIconSize    = 32.dp
 
     // ── Submit button ─────────────────────────────────────────────────────
-    val ButtonHeight    = 56.dp
+    val ButtonHeight    = 48.dp   // was 56dp – reduced to fit screen
     val ButtonCorner    = 12.dp
-    val ButtonLoadingIndicatorSize   = 22.dp
+    val ButtonLoadingIndicatorSize   = 20.dp
     val ButtonLoadingIndicatorStroke = 2.dp
 
     // ── SOS Strip ─────────────────────────────────────────────────────────
-    val SosBadgeSize   = 36.dp
-    val SosBadgeCorner = 10.dp
+    val SosBadgeSize   = 30.dp   // was 36dp
+    val SosBadgeCorner = 8.dp
     val SosStripBg     = Color(0xFFE8001D).copy(alpha = 0.07f)
     val SosStripBgHot  = Color(0xFFE8001D).copy(alpha = 0.25f)
     val SosStripBorder = Color(0xFFE8001D).copy(alpha = 0.18f)
     val SosStripBorderHot = Color(0xFFE8001D).copy(alpha = 0.7f)
-    val SosStripCorner = 14.dp
+    val SosStripCorner = 12.dp
 
     // ── Feature Pills ─────────────────────────────────────────────────────
     val PillBg         = Color(0xFFFFFFFF).copy(alpha = 0.08f)

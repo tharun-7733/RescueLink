@@ -132,18 +132,18 @@ fun AuthScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 28.dp)
-                .padding(top = 48.dp, bottom = 40.dp)
+                .padding(horizontal = 22.dp)
+                .padding(top = 28.dp, bottom = 24.dp)
                 .imePadding(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Hero Icon
             HeroIconWrap()
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(14.dp))
 
             // Brand
             BrandBlock()
-            Spacer(Modifier.height(36.dp))
+            Spacer(Modifier.height(20.dp))
 
             // Auth card with shake
             RescueLinkCard(
@@ -156,15 +156,15 @@ fun AuthScreen(
                     fontWeight = FontWeight.Bold,
                     color = T.TextPrimary
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(4.dp))
                 Text(
                     "Sign in to get instant roadside help, 24/7.",
                     fontFamily = Outfit,
                     fontSize = T.CardSubSize,
                     color = T.TextSecondary,
-                    lineHeight = 20.sp
+                    lineHeight = 17.sp
                 )
-                Spacer(Modifier.height(28.dp))
+                Spacer(Modifier.height(18.dp))
 
                 // Tab row
                 AuthTabRow(
@@ -176,7 +176,7 @@ fun AuthScreen(
                         }
                     }
                 )
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(16.dp))
 
                 // Forms
                 AnimatedContent(
@@ -227,7 +227,7 @@ fun AuthScreen(
             }
 
             // Sign-up row
-            Spacer(Modifier.height(22.dp))
+            Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.Center) {
                 Text(
                     if (selectedTab.intValue == 0) "New to RescueLink? " else "Already have an account? ",
@@ -249,7 +249,7 @@ fun AuthScreen(
             }
 
             // SOS Strip
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(16.dp))
             SosEmergencyStrip()
         }
     }
@@ -441,7 +441,7 @@ private fun BrandBlock() {
             style = TextStyle(
                 fontFamily = BebasNeue,
                 fontSize    = T.BrandNameSize,
-                letterSpacing = 3.sp,
+                letterSpacing = 2.sp,
                 brush       = Brush.linearGradient(
                     0.3f to Color.White,
                     1.0f to T.RedGlow,
@@ -450,13 +450,13 @@ private fun BrandBlock() {
                 )
             )
         )
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(2.dp))
         Text(
             "EMERGENCY ROAD ASSIST",
             fontFamily = Outfit,
             fontSize = T.BrandTagSize,
             fontWeight = FontWeight.Medium,
-            letterSpacing = 4.sp,
+            letterSpacing = 3.sp,
             color = T.RedHot
         )
     }
@@ -493,7 +493,7 @@ private fun RescueLinkCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 28.dp, vertical = 32.dp),
+                .padding(horizontal = 20.dp, vertical = 22.dp),
             content = content
         )
     }
@@ -527,7 +527,7 @@ private fun AuthTabRow(selectedTab: Int, onTabSelected: (Int) -> Unit) {
                         .background(if (isActive) T.RedHot else Color.Transparent)
                         .semantics { contentDescription = "$title tab${if (isActive) ", selected" else ""}"; role = Role.Tab }
                         .noRippleClickable { onTabSelected(index) }
-                        .padding(vertical = 10.dp)
+                        .padding(vertical = 8.dp)
                 ) {
                     Text(title, fontFamily = Outfit, fontSize = T.TabLabelSize, fontWeight = FontWeight.SemiBold, color = textColor)
                 }
@@ -564,7 +564,7 @@ private fun LoginForm(
             keyboardType = KeyboardType.Email,
             imeAction = ImeAction.Next
         )
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
 
         RescueLinkTextField(
             value = formState.password,
@@ -591,7 +591,7 @@ private fun LoginForm(
         )
 
         // Remember / Forgot row
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(2.dp))
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -603,12 +603,12 @@ private fun LoginForm(
             }
         }
 
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(2.dp))
         AuthSubmitButton("Sign In to RescueLink", isLoading = isLoading, isEnabled = !isLoading, onClick = onSignIn)
 
         // Divider
         Row(
-            Modifier.fillMaxWidth().padding(vertical = 20.dp),
+            Modifier.fillMaxWidth().padding(vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(Modifier.weight(1f).height(1.dp).background(Brush.horizontalGradient(listOf(Color.Transparent, T.BlackRim))))
@@ -655,7 +655,7 @@ private fun RegisterForm(
             keyboardType = KeyboardType.Text,
             imeAction = ImeAction.Next
         )
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
 
         RescueLinkTextField(
             value = formState.email,
@@ -669,7 +669,7 @@ private fun RegisterForm(
             keyboardType = KeyboardType.Email,
             imeAction = ImeAction.Next
         )
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
 
         RescueLinkTextField(
             value = formState.password,
@@ -697,7 +697,7 @@ private fun RegisterForm(
             Spacer(Modifier.height(8.dp))
             PasswordStrengthBar(strength = formState.passwordStrength)
         }
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(10.dp))
 
         RescueLinkTextField(
             value = formState.confirmPassword,
@@ -721,7 +721,7 @@ private fun RegisterForm(
             },
             keyboardActions = KeyboardActions(onDone = { onRegister() })
         )
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(18.dp))
         AuthSubmitButton("Create Account", isLoading = isLoading, isEnabled = !isLoading, onClick = onRegister)
     }
 }
@@ -768,11 +768,11 @@ private fun RescueLinkTextField(
         Text(
             label.uppercase(),
             fontFamily = Outfit,
-            fontSize = 11.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
-            letterSpacing = 2.sp,
+            letterSpacing = 1.5.sp,
             color = T.TextLabel,
-            modifier = Modifier.padding(bottom = 8.dp)
+            modifier = Modifier.padding(bottom = 5.dp)
         )
 
         TextField(
@@ -869,7 +869,7 @@ private fun RememberMeCheckbox(checked: Boolean, onToggle: () -> Unit) {
 private fun GoogleSignInButton() {
     OutlinedButton(
         onClick = { /* TODO: Google sign-in */ },
-        modifier = Modifier.fillMaxWidth().height(50.dp),
+        modifier = Modifier.fillMaxWidth().height(44.dp),
         shape = RoundedCornerShape(T.FieldCorner),
         border = BorderStroke(1.5.dp, T.BlackRim),
         colors = ButtonDefaults.outlinedButtonColors(containerColor = T.BlackMid, contentColor = T.TextPrimary)
@@ -1022,7 +1022,7 @@ private fun SosEmergencyStrip() {
             .fillMaxWidth()
             .background(T.RedHot.copy(bgAlpha), RoundedCornerShape(T.SosStripCorner))
             .border(1.dp, T.RedHot.copy(borderAlpha), RoundedCornerShape(T.SosStripCorner))
-            .padding(horizontal = 18.dp, vertical = 14.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
