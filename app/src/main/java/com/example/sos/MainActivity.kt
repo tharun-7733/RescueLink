@@ -4,16 +4,22 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.unit.dp
-import com.airbnb.lottie.compose.*
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import com.example.sos.ui.theme.SOSTheme
 import com.example.sos.ui.theme.LoginScreen
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -22,21 +28,28 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             SOSTheme {
+                val auth = remember { FirebaseAuth.getInstance() }
                 var currentScreen by remember { mutableStateOf("splash") }
 
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
                     when (currentScreen) {
-                        "splash" -> Splash(onTimeout = {
-                            currentScreen = "car_animation"
+                        "splash" -> SplashScreen(onVideoEnd = {
+                            currentScreen = "loading"
                         })
-                        "car_animation" -> CarAnimationScreen(onTimeout = {
-                            val isLoggedIn = false
-                            currentScreen = if (isLoggedIn) "dashboard" else "login"
+                        "loading" -> LoadingScreen(onTimeout = {
+                            val currentUser = auth.currentUser
+                            currentScreen = if (currentUser != null) "dashboard" else "login"
                         })
                         "login" -> LoginScreen(onLoginSuccess = {
                             currentScreen = "dashboard"
                         })
-                        "dashboard" -> DashboardScreen()
+                        "dashboard" -> DashboardScreen(onLogout = {
+                            auth.signOut()
+                            currentScreen = "login"
+                        })
                     }
                 }
             }
@@ -44,47 +57,80 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Plays splash.mp4 once and then transitions.
+ */
 @Composable
-fun Splash(onTimeout: () -> Unit) {
-    val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(R.raw.logo2))
-    val progress by animateLottieCompositionAsState(
-        composition = composition,
-        iterations = LottieConstants.IterateForever
-    )
+fun SplashScreen(onVideoEnd: () -> Unit) {
+    VideoPlayerScreen(videoResId = R.raw.splash, loop = false, onVideoEnd = onVideoEnd)
+}
 
+/**
+ * Plays loading.mp4 looping for 3 seconds and then transitions.
+ */
+@Composable
+fun LoadingScreen(onTimeout: () -> Unit) {
     LaunchedEffect(Unit) {
         delay(3000)
         onTimeout()
     }
-
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        LottieAnimation(
-            composition = composition,
-            progress = { progress },
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.FillBounds
-        )
-    }
+    VideoPlayerScreen(videoResId = R.raw.loading, loop = true)
 }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-fun CarAnimationScreen(onTimeout: () -> Unit) {
-    val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(R.raw.car))
-    val progress by animateLottieCompositionAsState(
-        composition = composition,
-        iterations = LottieConstants.IterateForever
-    )
+fun VideoPlayerScreen(
+    videoResId: Int,
+    loop: Boolean = false,
+    onVideoEnd: () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val onVideoEndStable by rememberUpdatedState(onVideoEnd)
 
-    LaunchedEffect(Unit) {
-        delay(4000) // Shown for 4 seconds
-        onTimeout()
+    val exoPlayer = remember {
+        ExoPlayer.Builder(context).build().also { player ->
+            val uri = "android.resource://${context.packageName}/$videoResId"
+            player.setMediaItem(MediaItem.fromUri(uri))
+            player.volume = 0f
+            player.repeatMode = if (loop) Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_OFF
+            player.prepare()
+            player.playWhenReady = true
+        }
     }
 
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        LottieAnimation(
-            composition = composition,
-            progress = { progress },
-            modifier = Modifier.size(300.dp)
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) {
+                    onVideoEndStable()
+                }
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose {
+            exoPlayer.removeListener(listener)
+            exoPlayer.release()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    player = exoPlayer
+                    useController = false
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+                    setBackgroundColor(android.graphics.Color.BLACK)
+                }
+            },
+            update = { playerView ->
+                playerView.player = exoPlayer
+            }
         )
     }
 }

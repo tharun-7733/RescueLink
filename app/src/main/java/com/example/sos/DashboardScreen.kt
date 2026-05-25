@@ -7,11 +7,15 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
@@ -25,14 +29,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DashboardScreen() {
+fun DashboardScreen(onLogout: () -> Unit, chatViewModel: ChatViewModel = viewModel()) {
     var isChatOpen by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -58,7 +63,9 @@ fun DashboardScreen() {
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 item {
-                    HeaderSection()
+                    HeaderSection(
+                        onMenuClick = { showMenu = true }
+                    )
                 }
                 item {
                     EmergencySOSCard()
@@ -135,21 +142,100 @@ fun DashboardScreen() {
             }
         }
 
+        // Custom Drawer/Menu Implementation
+        if (showMenu) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable { showMenu = false }
+            ) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(280.dp)
+                        .clickable(enabled = false) {},
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF11141B)),
+                    shape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp)
+                ) {
+                    Column(modifier = Modifier.padding(24.dp)) {
+                        Text(
+                            "SOS Menu",
+                            color = Color.White,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(32.dp))
+                        
+                        MenuItem(Icons.Default.Person, "Profile")
+                        MenuItem(Icons.Default.Settings, "Settings")
+                        MenuItem(Icons.Default.Notifications, "Notifications")
+                        
+                        Spacer(modifier = Modifier.weight(1f))
+                        
+                        HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        // LOGOUT OPTION
+                        TextButton(
+                            onClick = {
+                                showMenu = false
+                                onLogout()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null)
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Text("Logout", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         AnimatedVisibility(
             visible = isChatOpen,
             enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
             exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
             modifier = Modifier.align(Alignment.BottomEnd)
         ) {
-            ChatFloatingWindow(onClose = { isChatOpen = false })
+            ChatFloatingWindow(viewModel = chatViewModel, onClose = { isChatOpen = false })
         }
     }
 }
 
 @Composable
-fun ChatFloatingWindow(onClose: () -> Unit) {
+fun MenuItem(icon: ImageVector, title: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp)
+            .clickable { },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(24.dp))
+        Spacer(modifier = Modifier.width(16.dp))
+        Text(title, color = Color.White, fontSize = 16.sp)
+    }
+}
+
+@Composable
+fun ChatFloatingWindow(viewModel: ChatViewModel, onClose: () -> Unit) {
     var chatText by remember { mutableStateOf("") }
-    
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(viewModel.chatMessages.size) {
+        if (viewModel.chatMessages.isNotEmpty()) {
+            listState.animateScrollToItem(viewModel.chatMessages.size - 1)
+        }
+    }
+
     Card(
         modifier = Modifier
             .padding(16.dp)
@@ -161,7 +247,6 @@ fun ChatFloatingWindow(onClose: () -> Unit) {
         elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -191,16 +276,19 @@ fun ChatFloatingWindow(onClose: () -> Unit) {
                 }
             }
 
-            // Chat content area
-            Box(modifier = Modifier.weight(1f).padding(16.dp)) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ChatBubble("Hi! I'm Tars. How can I assist you today?", isUser = false)
-                    ChatBubble("I need a mechanic near me.", isUser = true)
-                    ChatBubble("Searching for mechanics... I found 3 nearby. Would you like to see them?", isUser = false)
+            Box(modifier = Modifier.weight(1f).padding(horizontal = 16.dp)) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(vertical = 16.dp)
+                ) {
+                    items(viewModel.chatMessages) { message ->
+                        ChatBubble(message.text, isUser = message.isUser)
+                    }
                 }
             }
 
-            // Fixed Input Area
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = Color(0xFF1C212B),
@@ -234,7 +322,12 @@ fun ChatFloatingWindow(onClose: () -> Unit) {
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     IconButton(
-                        onClick = { if (chatText.isNotBlank()) chatText = "" },
+                        onClick = {
+                            if (chatText.isNotBlank()) {
+                                viewModel.sendMessage(chatText)
+                                chatText = ""
+                            }
+                        },
                         modifier = Modifier
                             .size(44.dp)
                             .background(Color(0xFF6200EE), CircleShape)
@@ -272,7 +365,7 @@ fun ChatBubble(text: String, isUser: Boolean) {
 }
 
 @Composable
-fun HeaderSection() {
+fun HeaderSection(onMenuClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -281,7 +374,7 @@ fun HeaderSection() {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = {}, modifier = Modifier.size(24.dp)) {
+            IconButton(onClick = onMenuClick, modifier = Modifier.size(24.dp)) {
                 Icon(Icons.Default.Menu, contentDescription = null, tint = Color.White)
             }
             Spacer(modifier = Modifier.width(16.dp))
@@ -385,9 +478,9 @@ fun LocationStatusCard() {
                 shape = RoundedCornerShape(12.dp),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
             ) {
-                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(14.dp))
+                Icon(imageVector = Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Update Location", fontSize = 11.sp)
+                Text("Refresh", fontSize = 11.sp)
             }
         }
     }
@@ -540,10 +633,4 @@ fun BottomNavigationBar() {
             colors = NavigationBarItemDefaults.colors(unselectedIconColor = Color.Gray)
         )
     }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    DashboardScreen()
 }
