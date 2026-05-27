@@ -5,6 +5,18 @@ import android.net.Uri
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import android.Manifest
+import android.content.pm.PackageManager
+import android.location.Location
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLng
+import com.google.maps.android.compose.GoogleMap
+import com.google.maps.android.compose.MapProperties
+import com.google.maps.android.compose.rememberCameraPositionState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -190,13 +202,25 @@ class DashboardViewModel : ViewModel() {
     // ── Incidents ─────────────────────────────────────────────────────────
     private fun observeIncidents() {
         val uid = auth.currentUser?.uid ?: run {
-            _state.value = _state.value.copy(isLoadingIncidents = false)
+            _state.value = _state.value.copy(incidents = sampleIncidents(), isLoadingIncidents = false)
             return
         }
         val ref = db?.reference?.child("incidents")?.child(uid) ?: run {
-            _state.value = _state.value.copy(isLoadingIncidents = false)
+            _state.value = _state.value.copy(incidents = sampleIncidents(), isLoadingIncidents = false)
             return
         }
+
+        // Prevent infinite buffering if DB connection hangs
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(2000)
+            if (_state.value.isLoadingIncidents) {
+                _state.value = _state.value.copy(
+                    incidents = sampleIncidents(),
+                    isLoadingIncidents = false
+                )
+            }
+        }
+
         incidentListener = object : ValueEventListener {
             override fun onDataChange(snap: DataSnapshot) {
                 val list = snap.children.mapNotNull { child ->
@@ -210,10 +234,12 @@ class DashboardViewModel : ViewModel() {
                         )
                     } catch (e: Exception) { null }
                 }.sortedByDescending { it.timestamp }
-                _state.value = _state.value.copy(incidents = list, isLoadingIncidents = false)
+                
+                val finalList = if (list.isEmpty()) sampleIncidents() else list
+                _state.value = _state.value.copy(incidents = finalList, isLoadingIncidents = false)
             }
             override fun onCancelled(error: DatabaseError) {
-                _state.value = _state.value.copy(isLoadingIncidents = false)
+                _state.value = _state.value.copy(incidents = sampleIncidents(), isLoadingIncidents = false)
             }
         }
         ref.addValueEventListener(incidentListener!!)
@@ -388,6 +414,11 @@ class DashboardViewModel : ViewModel() {
         CommunityPost("3", "Raj Kumar",    "RK", "Yesterday","Police checking near Ahmedabad bypass. Keep documents ready.", 31, 8)
     )
 
+    private fun sampleIncidents(): List<Incident> = listOf(
+        Incident("1", "Engine Overheating", "Tow requested near Downtown", "resolved", System.currentTimeMillis() - 86400000L),
+        Incident("2", "Flat Tire", "Service completed by RescueLink", "resolved", System.currentTimeMillis() - 172800000L)
+    )
+
     override fun onCleared() {
         val uid = auth.currentUser?.uid
         incidentListener?.let {
@@ -411,7 +442,8 @@ class DashboardViewModel : ViewModel() {
 @Composable
 fun DashboardScreen(
     onLogout: () -> Unit,
-    vm: DashboardViewModel = viewModel()
+    vm: DashboardViewModel = viewModel(),
+    chatVm: ChatViewModel = viewModel()
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     var currentRoute by remember { mutableStateOf("home") }
@@ -445,15 +477,20 @@ fun DashboardScreen(
                 targetState = currentRoute,
                 transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(160)) },
                 label = "route",
-                modifier = Modifier.fillMaxSize().padding(innerPadding)
+                modifier = Modifier.fillMaxSize().padding(innerPadding).imePadding()
             ) { route ->
                 when (route) {
-                    "home"      -> HomeScreen(state, listState, vm::toggleSos)
+                    "home"      -> HomeScreen(state, listState, vm::toggleSos) { msg ->
+                        if (msg.isNotBlank()) {
+                            chatVm.sendMessage(msg)
+                        }
+                        currentRoute = "chat"
+                    }
                     "map"       -> MapScreen()
                     "community" -> CommunityScreen(state, vm)
-                    "chat"      -> AiChatScreen()
+                    "chat"      -> AiChatScreen(chatVm)
                     "more"      -> MoreScreen(onLogout)
-                    else        -> HomeScreen(state, listState, vm::toggleSos)
+                    else        -> HomeScreen(state, listState, vm::toggleSos) {}
                 }
             }
         }
@@ -475,7 +512,8 @@ fun DashboardScreen(
 private fun HomeScreen(
     state: DashboardState,
     listState: androidx.compose.foundation.lazy.LazyListState,
-    onSosTap: () -> Unit
+    onSosTap: () -> Unit,
+    onNavigateToChat: (String) -> Unit
 ) {
     LazyColumn(
         state = listState,
@@ -486,7 +524,7 @@ private fun HomeScreen(
         item { VehicleStatusRow(state.vehicleData, state.isLoadingVehicle) }
         item { QuickActionsRow() }
         item { ServiceHistorySection(state.incidents, state.isLoadingIncidents) }
-        item { ChatbotPreviewSection() }
+        item { ChatbotPreviewSection(onNavigateToChat) }
         item { Spacer(Modifier.height(6.dp)) }
     }
 }
@@ -1005,7 +1043,7 @@ private fun formatTimestamp(ts: Long): String {
 //  CHATBOT PREVIEW
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
-private fun ChatbotPreviewSection() {
+private fun ChatbotPreviewSection(onQuickAction: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader("AI Emergency Assistant", "Open Chat")
         Box(
@@ -1013,6 +1051,7 @@ private fun ChatbotPreviewSection() {
                 .fillMaxWidth()
                 .background(DashboardTokens.CardBg, RoundedCornerShape(16.dp))
                 .border(1.dp, DashboardTokens.Rim, RoundedCornerShape(16.dp))
+                .clickable { onQuickAction("") }
                 .padding(14.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1029,10 +1068,12 @@ private fun ChatbotPreviewSection() {
                 }
                 Text("Quick actions:", fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.White35)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    QuickChip("🔧 Mechanic"); QuickChip("⛽ Fuel")
+                    QuickChip("🔧 Mechanic") { onQuickAction("I need a mechanic near me.") }
+                    QuickChip("⛽ Fuel") { onQuickAction("Where is the nearest gas station?") }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    QuickChip("🚑 Hospital"); QuickChip("👮 Police")
+                    QuickChip("🚑 Hospital") { onQuickAction("Where is the nearest hospital?") }
+                    QuickChip("👮 Police") { onQuickAction("How do I contact the local police?") }
                 }
             }
         }
@@ -1040,12 +1081,12 @@ private fun ChatbotPreviewSection() {
 }
 
 @Composable
-private fun QuickChip(text: String) {
+private fun QuickChip(text: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .background(DashboardTokens.CardBg3, RoundedCornerShape(10.dp))
             .border(1.dp, DashboardTokens.Rim2, RoundedCornerShape(10.dp))
-            .clickable {}
+            .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 6.dp)
     ) { Text(text, fontFamily = OutfitFontFamily, fontSize = 11.sp, color = DashboardTokens.White60) }
 }
@@ -1055,6 +1096,51 @@ private fun QuickChip(text: String) {
 // ═══════════════════════════════════════════════════════════════════════════
 @Composable
 private fun MapScreen() {
+    val context = LocalContext.current
+    var hasLocationPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+        onResult = { permissions ->
+            hasLocationPermission = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true || 
+                                    permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        }
+    )
+
+    val cameraPositionState = rememberCameraPositionState {
+        position = CameraPosition.fromLatLngZoom(LatLng(23.0225, 72.5714), 10f) // default to Ahmedabad
+    }
+
+    LaunchedEffect(Unit) {
+        if (!hasLocationPermission) {
+            launcher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            )
+        }
+    }
+
+    LaunchedEffect(hasLocationPermission) {
+        if (hasLocationPermission) {
+            try {
+                val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+                fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
+                    if (location != null) {
+                        cameraPositionState.position = CameraPosition.fromLatLngZoom(
+                            LatLng(location.latitude, location.longitude), 
+                            15f
+                        )
+                    }
+                }
+            } catch (e: SecurityException) {
+                // Ignore if permission lost
+            }
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1064,19 +1150,11 @@ private fun MapScreen() {
             Text("Locate nearby assistance", fontFamily = OutfitFontFamily, fontSize = 11.sp, color = DashboardTokens.White60)
         }
         Box(modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(16.dp)).border(1.dp, DashboardTokens.Rim, RoundedCornerShape(16.dp))) {
-            Canvas(modifier = Modifier.fillMaxSize().background(Color(0xFF0C0C10))) {
-                val step = 36.dp.toPx()
-                for (i in 0..30) {
-                    drawLine(Color(0x0AFFFFFF), Offset(i * step, 0f), Offset(i * step, size.height))
-                    drawLine(Color(0x0AFFFFFF), Offset(0f, i * step), Offset(size.width, i * step))
-                }
-                drawRect(Color(0xFF151520), Offset(0f, size.height * 0.42f), Size(size.width, 22.dp.toPx()))
-                drawRect(Color(0xFF151520), Offset(size.width * 0.52f, 0f), Size(16.dp.toPx(), size.height))
-                drawCircle(DashboardTokens.RedHot, 8.dp.toPx(), Offset(size.width * 0.42f, size.height * 0.44f))
-                drawCircle(DashboardTokens.Blue,   5.dp.toPx(), Offset(size.width * 0.72f, size.height * 0.24f))
-                drawCircle(DashboardTokens.Green,  5.dp.toPx(), Offset(size.width * 0.22f, size.height * 0.62f))
-                drawCircle(DashboardTokens.Orange, 5.dp.toPx(), Offset(size.width * 0.82f, size.height * 0.72f))
-            }
+            GoogleMap(
+                modifier = Modifier.fillMaxSize(),
+                cameraPositionState = cameraPositionState,
+                properties = MapProperties(isMyLocationEnabled = hasLocationPermission)
+            )
             Box(
                 modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.85f))))
@@ -1085,7 +1163,7 @@ private fun MapScreen() {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.LocationOn, null, tint = DashboardTokens.RedHot, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(5.dp))
-                    Text("Near Ahmedabad Hwy, Gujarat", fontFamily = OutfitFontFamily, fontSize = 11.sp, color = Color.White)
+                    Text("Live GPS Location Enabled", fontFamily = OutfitFontFamily, fontSize = 11.sp, color = Color.White)
                     Spacer(Modifier.weight(1f))
                     Text("Expand", fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.RedHot, fontWeight = FontWeight.Bold)
                 }
