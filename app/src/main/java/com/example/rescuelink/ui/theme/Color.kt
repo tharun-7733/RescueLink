@@ -1,4 +1,4 @@
-package com.example.sos.ui.theme
+package com.example.rescuelink.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

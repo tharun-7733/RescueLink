@@ -1,4 +1,4 @@
-package com.example.sos.auth
+package com.example.rescuelink.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider

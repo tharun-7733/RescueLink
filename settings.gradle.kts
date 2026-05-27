@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "SOS"
+rootProject.name = "RescueLink"
 include(":app")

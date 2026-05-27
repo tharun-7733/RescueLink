@@ -1,11 +1,10 @@
 @file:Suppress("AnimateAsStateLabel")
 
-package com.example.sos.ui.theme
+package com.example.rescuelink.ui.theme
 
 import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -33,19 +32,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.*
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.*
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.sos.auth.AuthFormState
-import com.example.sos.auth.AuthUiState
-import com.example.sos.auth.AuthViewModel
-import com.example.sos.ui.theme.AuthDesignTokens as T
+import com.example.rescuelink.auth.AuthFormState
+import com.example.rescuelink.auth.AuthUiState
+import com.example.rescuelink.auth.AuthViewModel
+import com.example.rescuelink.ui.theme.AuthDesignTokens as T
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Font aliases (from Type.kt – downloadable Google Fonts)

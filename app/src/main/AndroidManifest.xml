@@ -14,7 +14,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.SOS">
+        android:theme="@style/Theme.RescueLink">
 
         <!--
              TODO: Before you run your application, you need a Google Maps API key.
@@ -39,7 +39,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/Theme.SOS">
+            android:theme="@style/Theme.RescueLink">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

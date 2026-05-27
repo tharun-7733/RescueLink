@@ -15,11 +15,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.sos"
+    namespace = "com.example.rescuelink"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.sos"
+        applicationId = "com.example.rescuelink"
         minSdk = 24
         targetSdk = 35
         versionCode = 1

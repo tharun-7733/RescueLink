@@ -1,14 +1,14 @@
-package com.example.sos
+package com.example.rescuelink
 
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.sos.BuildConfig
-import com.example.sos.ai.GeminiContent
-import com.example.sos.ai.GeminiPart
-import com.example.sos.ai.GeminiRequest
-import com.example.sos.ai.GeminiRetrofitClient
+import com.example.rescuelink.BuildConfig
+import com.example.rescuelink.ai.GeminiContent
+import com.example.rescuelink.ai.GeminiPart
+import com.example.rescuelink.ai.GeminiRequest
+import com.example.rescuelink.ai.GeminiRetrofitClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

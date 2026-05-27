@@ -1,8 +1,8 @@
-package com.example.sos
+package com.example.rescuelink
 
-import com.example.sos.auth.AuthRepository
-import com.example.sos.auth.AuthUiState
-import com.example.sos.auth.AuthViewModel
+import com.example.rescuelink.auth.AuthRepository
+import com.example.rescuelink.auth.AuthUiState
+import com.example.rescuelink.auth.AuthViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher

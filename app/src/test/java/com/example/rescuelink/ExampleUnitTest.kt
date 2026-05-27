@@ -1,4 +1,4 @@
-package com.example.sos
+package com.example.rescuelink
 
 import org.junit.Test
 

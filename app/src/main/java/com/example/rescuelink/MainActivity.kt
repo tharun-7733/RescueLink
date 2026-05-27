@@ -1,4 +1,4 @@
-package com.example.sos
+package com.example.rescuelink
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -18,8 +18,8 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import com.example.sos.ui.theme.SOSTheme
-import com.example.sos.ui.theme.LoginScreen
+import com.example.rescuelink.ui.theme.SOSTheme
+import com.example.rescuelink.ui.theme.LoginScreen
 import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import com.google.firebase.auth.FirebaseAuth
 

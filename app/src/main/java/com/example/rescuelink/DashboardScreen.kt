@@ -1,4 +1,4 @@
-package com.example.sos
+package com.example.rescuelink
 
 import android.content.Intent
 import android.net.Uri
@@ -36,10 +36,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.automirrored.rounded.ContactSupport
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.ui.platform.LocalContext
@@ -53,7 +51,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.sos.ui.theme.*
+import com.example.rescuelink.ui.theme.*
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError

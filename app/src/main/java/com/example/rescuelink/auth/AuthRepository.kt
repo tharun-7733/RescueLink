@@ -1,4 +1,4 @@
-package com.example.sos.auth
+package com.example.rescuelink.auth
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
