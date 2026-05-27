@@ -12,4 +12,8 @@
 /captures
 .externalNativeBuild
 .cxx
+
+# ── Secrets ──────────────────────────────────────────────────────────────────
+# local.properties holds the GEMINI_API_KEY — NEVER commit this file.
 local.properties
+**/*.properties.bak

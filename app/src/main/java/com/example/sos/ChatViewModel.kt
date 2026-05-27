@@ -3,25 +3,40 @@ package com.example.sos
 import androidx.compose.runtime.mutableStateListOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.ai.client.generativeai.GenerativeModel
+import com.example.sos.BuildConfig
+import com.example.sos.ai.GeminiContent
+import com.example.sos.ai.GeminiPart
+import com.example.sos.ai.GeminiRequest
+import com.example.sos.ai.GeminiRetrofitClient
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class Message(val text: String, val isUser: Boolean)
 
+/**
+ * ViewModel that drives the TARS AI assistant chat screen.
+ *
+ * Security model
+ * ──────────────
+ * • The Gemini API key is loaded from BuildConfig.GEMINI_API_KEY, which Gradle
+ *   reads from local.properties at build time.
+ * • local.properties is listed in .gitignore — the key is NEVER committed.
+ * • The key is never stored as a field in this class; it is passed inline to
+ *   each API call so there is no single long-lived string holding it.
+ *
+ * Concurrency model
+ * ─────────────────
+ * • All network work runs on Dispatchers.IO via viewModelScope.launch to keep
+ *   the main thread free.
+ * • State (chatMessages) is a SnapshotStateList updated only on the main
+ *   dispatcher (withContext(Dispatchers.Main) is implicit via snapshotStateList
+ *   inside viewModelScope).
+ */
 class ChatViewModel : ViewModel() {
 
-    // 1. Ensure your API Key is full and valid
-    private val apiKey = "AIzaSyChTA8Yeg9GoCr0QxcVic8nprtR5dMdz28"
-
-    val chatMessages = mutableStateListOf<Message>(
+    val chatMessages = mutableStateListOf(
         Message("Hi! I'm Tars. How can I assist you today?", false)
-    )
-
-    // 2. Initializing with the correct model
-    private val generativeModel = GenerativeModel(
-        // "gemini-1.5-flash" is correct, but ONLY works with SDK 0.9.0+
-        modelName = "gemini-1.5-flash",
-        apiKey = apiKey
     )
 
     fun sendMessage(userMessage: String) {
@@ -29,18 +44,34 @@ class ChatViewModel : ViewModel() {
 
         chatMessages.add(Message(userMessage, true))
 
-        viewModelScope.launch {
-            try {
-                // Use generateContent
-                val response = generativeModel.generateContent(userMessage)
+        viewModelScope.launch(Dispatchers.IO) {
+            val reply = runCatching {
+                val request = GeminiRequest(
+                    contents = listOf(
+                        GeminiContent(parts = listOf(GeminiPart(userMessage)))
+                    )
+                )
 
-                val reply = response.text ?: "I'm sorry, I couldn't understand that."
+                // API key injected from BuildConfig — read from local.properties
+                val response = GeminiRetrofitClient.service.generateContent(
+                    apiKey = BuildConfig.GEMINI_API_KEY,
+                    body = request
+                )
+
+                response.candidates
+                    ?.firstOrNull()
+                    ?.content
+                    ?.parts
+                    ?.firstOrNull()
+                    ?.text
+                    ?: "I'm sorry, I couldn't generate a response."
+
+            }.getOrElse { e ->
+                "Error: ${e.localizedMessage}"
+            }
+
+            withContext(Dispatchers.Main) {
                 chatMessages.add(Message(reply, false))
-
-            } catch (e: Exception) {
-                // If you still get a 404, try changing modelName to "gemini-pro"
-                e.printStackTrace()
-                chatMessages.add(Message("Error: ${e.localizedMessage}", false))
             }
         }
     }
