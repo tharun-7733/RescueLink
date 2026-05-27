@@ -1,5 +1,7 @@
 package com.example.sos
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -28,6 +30,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.automirrored.rounded.ContactSupport
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -343,6 +346,7 @@ fun DashboardScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     var currentRoute by remember { mutableStateOf("home") }
     val listState = rememberLazyListState()
+    var showNotifications by remember { mutableStateOf(false) }
 
     // Detect scroll for top bar collapse
     val isScrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 20 } }
@@ -355,11 +359,12 @@ fun DashboardScreen(
             containerColor = Color.Transparent,
             topBar = {
                 DashboardTopBar(
-                    initials    = state.userInitials,
-                    userName    = state.userName,
-                    unreadCount = state.unreadCount,
-                    isScrolled  = isScrolled,
-                    onLogout    = onLogout
+                    initials           = state.userInitials,
+                    userName           = state.userName,
+                    unreadCount        = state.unreadCount,
+                    isScrolled         = isScrolled,
+                    onNotificationClick = { showNotifications = true },
+                    onProfileClick     = { currentRoute = "more" }
                 )
             },
             bottomBar = {
@@ -381,6 +386,14 @@ fun DashboardScreen(
                     else        -> HomeScreen(state, listState, vm::toggleSos)
                 }
             }
+        }
+
+        // Notification panel overlay
+        if (showNotifications) {
+            NotificationPanel(
+                notifications = state.notifications,
+                onDismiss     = { showNotifications = false }
+            )
         }
     }
 }
@@ -575,40 +588,265 @@ private fun WideMetricCard(icon: ImageVector, label: String, value: String, colo
 // ─────────────────────────────────────────────────────────────────────────────
 //  QUICK ACTIONS ROW
 // ─────────────────────────────────────────────────────────────────────────────
+
+data class QuickActionService(
+    val name: String,
+    val phone: String,
+    val address: String,
+    val distance: String,
+    val rating: String
+)
+
+data class QuickActionInfo(
+    val emoji: String,
+    val label: String,
+    val color: Color,
+    val dimColor: Color,
+    val searchQuery: String,
+    val services: List<QuickActionService>
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun QuickActionsRow() {
+    val context = LocalContext.current
+    var selectedAction by remember { mutableStateOf<QuickActionInfo?>(null) }
+
+    val actions = listOf(
+        QuickActionInfo(
+            emoji = "🔧", label = "Mechanic",
+            color = DashboardTokens.Orange, dimColor = DashboardTokens.OrangeDim,
+            searchQuery = "car mechanic near me",
+            services = listOf(
+                QuickActionService("Sharma Auto Repair",     "+91-9876543210", "NH-48, Km 12, Gujarat",     "0.8 km",  "⭐ 4.7"),
+                QuickActionService("Patel Motors",           "+91-9123456780", "Ring Road, Ahmedabad",      "1.4 km",  "⭐ 4.5"),
+                QuickActionService("24x7 Road Assist",       "+91-1800112233", "Gandhinagar Hwy, Gujarat",  "2.1 km",  "⭐ 4.8")
+            )
+        ),
+        QuickActionInfo(
+            emoji = "⛽", label = "Fuel",
+            color = DashboardTokens.Green, dimColor = DashboardTokens.GreenDim,
+            searchQuery = "fuel station near me",
+            services = listOf(
+                QuickActionService("HP Petrol Pump",         "+91-9988776655", "Expressway, Exit 14",        "1.2 km",  "⭐ 4.3"),
+                QuickActionService("Indian Oil — Vasan",     "+91-9001122334", "State Hwy 41, Gujarat",     "1.9 km",  "⭐ 4.6"),
+                QuickActionService("Bharat Petroleum",       "+91-9445566778", "NH-48 Service Lane",         "3.0 km",  "⭐ 4.4")
+            )
+        ),
+        QuickActionInfo(
+            emoji = "🚑", label = "Hospital",
+            color = DashboardTokens.RedHot, dimColor = DashboardTokens.RedDim,
+            searchQuery = "hospital near me",
+            services = listOf(
+                QuickActionService("Civil Hospital",         "108",            "Asarwa, Ahmedabad",          "2.8 km",  "⭐ 4.2"),
+                QuickActionService("Sterling Hospitals",     "+91-7926570094", "Gurukul Rd, Ahmedabad",     "3.5 km",  "⭐ 4.8"),
+                QuickActionService("Apollo Hospitals",       "+91-7923969090", "Bhat GIDC, Gandhinagar",    "5.2 km",  "⭐ 4.9")
+            )
+        ),
+        QuickActionInfo(
+            emoji = "👮", label = "Police",
+            color = DashboardTokens.Blue, dimColor = DashboardTokens.BlueDim,
+            searchQuery = "police station near me",
+            services = listOf(
+                QuickActionService("Highway Patrol — NH48",  "100",            "NH-48, Km 18 Booth",         "0.9 km",  "⭐ 4.1"),
+                QuickActionService("Kheda Police Station",   "+91-2692-220100","Kheda, Gujarat",             "4.1 km",  "⭐ 4.0"),
+                QuickActionService("Traffic Control Room",   "1095",           "Ahmedabad Traffic HQ",      "—",       "⭐ 4.3")
+            )
+        ),
+        QuickActionInfo(
+            emoji = "🔋", label = "Charge",
+            color = DashboardTokens.Purple, dimColor = DashboardTokens.PurpleDim,
+            searchQuery = "EV charging station near me",
+            services = listOf(
+                QuickActionService("Tata Power EV Hub",      "+91-1800209090", "Sarkhej-Gandhinagar Hwy",   "1.6 km",  "⭐ 4.7"),
+                QuickActionService("EESL Charging Station",  "+91-1800123456", "Near Toll Plaza, NH-48",    "2.3 km",  "⭐ 4.5"),
+                QuickActionService("Ather Grid Point",       "+91-8069019999", "Thaltej, Ahmedabad",        "3.8 km",  "⭐ 4.6")
+            )
+        )
+    )
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Quick Actions", fontFamily = OutfitFontFamily, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            QuickActionCard("🔧", "Mechanic", DashboardTokens.Orange, DashboardTokens.OrangeDim)
-            QuickActionCard("⛽", "Fuel",     DashboardTokens.Green,  DashboardTokens.GreenDim)
-            QuickActionCard("🚑", "Hospital", DashboardTokens.RedHot, DashboardTokens.RedDim)
-            QuickActionCard("👮", "Police",   DashboardTokens.Blue,   DashboardTokens.BlueDim)
-            QuickActionCard("🔋", "Charge",   DashboardTokens.Purple, DashboardTokens.PurpleDim)
+            actions.forEach { action ->
+                QuickActionCard(
+                    emoji    = action.emoji,
+                    label    = action.label,
+                    color    = action.color,
+                    dimColor = action.dimColor,
+                    onClick  = { selectedAction = action }
+                )
+            }
+        }
+    }
+
+    // Bottom Sheet
+    selectedAction?.let { action ->
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest  = { selectedAction = null },
+            sheetState        = sheetState,
+            containerColor    = DashboardTokens.CardBg,
+            tonalElevation    = 0.dp,
+            scrimColor        = Color.Black.copy(alpha = 0.65f)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Header
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(
+                        modifier = Modifier.size(48.dp).background(action.dimColor, CircleShape)
+                            .border(1.dp, action.color.copy(0.3f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) { Text(action.emoji, fontSize = 22.sp) }
+                    Column {
+                        Text("${action.label} Services", fontFamily = OutfitFontFamily, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                        Text("Nearest options around you", fontFamily = OutfitFontFamily, fontSize = 11.sp, color = DashboardTokens.White60)
+                    }
+                }
+
+                HorizontalDivider(color = DashboardTokens.Rim, thickness = 0.5.dp)
+
+                // Service cards
+                action.services.forEach { service ->
+                    ServiceDetailCard(
+                        service = service,
+                        color   = action.color,
+                        dimColor = action.dimColor,
+                        onCall  = {
+                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${service.phone}"))
+                            context.startActivity(intent)
+                        },
+                        onMap   = {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(service.address)}"))
+                            context.startActivity(intent)
+                        }
+                    )
+                }
+
+                // Search on Maps
+                Box(
+                    modifier = Modifier.fillMaxWidth()
+                        .background(
+                            Brush.linearGradient(listOf(action.color.copy(0.15f), action.dimColor)),
+                            RoundedCornerShape(14.dp)
+                        )
+                        .border(1.dp, action.color.copy(0.3f), RoundedCornerShape(14.dp))
+                        .clickable {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com/?q=${Uri.encode(action.searchQuery)}"))
+                            context.startActivity(intent)
+                        }
+                        .padding(14.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Map, null, tint = action.color, modifier = Modifier.size(16.dp))
+                        Text("Find more on Google Maps", fontFamily = OutfitFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = action.color)
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun QuickActionCard(emoji: String, label: String, color: Color, dimColor: Color) {
+private fun ServiceDetailCard(
+    service: QuickActionService,
+    color: Color,
+    dimColor: Color,
+    onCall: () -> Unit,
+    onMap: () -> Unit
+) {
+    Box(
+        modifier = Modifier.fillMaxWidth()
+            .background(DashboardTokens.CardBg2, RoundedCornerShape(14.dp))
+            .border(1.dp, DashboardTokens.Rim, RoundedCornerShape(14.dp))
+            .padding(12.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(service.name, fontFamily = OutfitFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(service.address, fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.White60, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.background(dimColor, RoundedCornerShape(8.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                        Text(service.distance, fontFamily = OutfitFontFamily, fontSize = 9.sp, color = color, fontWeight = FontWeight.SemiBold)
+                    }
+                    Box(Modifier.background(DashboardTokens.CardBg3, RoundedCornerShape(8.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                        Text(service.rating, fontFamily = OutfitFontFamily, fontSize = 9.sp, color = DashboardTokens.White60)
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Call button
+                Box(
+                    modifier = Modifier.weight(1f)
+                        .background(color.copy(0.15f), RoundedCornerShape(10.dp))
+                        .border(1.dp, color.copy(0.3f), RoundedCornerShape(10.dp))
+                        .clickable(onClick = onCall)
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Call, null, tint = color, modifier = Modifier.size(13.dp))
+                        Text("Call", fontFamily = OutfitFontFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = color)
+                    }
+                }
+                // Directions button
+                Box(
+                    modifier = Modifier.weight(1f)
+                        .background(DashboardTokens.CardBg3, RoundedCornerShape(10.dp))
+                        .border(1.dp, DashboardTokens.Rim2, RoundedCornerShape(10.dp))
+                        .clickable(onClick = onMap)
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Directions, null, tint = DashboardTokens.White60, modifier = Modifier.size(13.dp))
+                        Text("Directions", fontFamily = OutfitFontFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = DashboardTokens.White60)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickActionCard(emoji: String, label: String, color: Color, dimColor: Color, onClick: () -> Unit) {
+    val scale = remember { Animatable(1f) }
+    val scope = rememberCoroutineScope()
     Column(
         modifier = Modifier
             .width(68.dp)
+            .graphicsLayer { scaleX = scale.value; scaleY = scale.value }
             .background(DashboardTokens.CardBg, RoundedCornerShape(14.dp))
-            .border(1.dp, color.copy(0.2f), RoundedCornerShape(14.dp))
-            .clickable {}
+            .border(1.dp, color.copy(0.3f), RoundedCornerShape(14.dp))
+            .clickable {
+                scope.launch {
+                    scale.animateTo(0.90f, tween(80))
+                    scale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+                }
+                onClick()
+            }
             .padding(vertical = 12.dp, horizontal = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Box(
-            modifier = Modifier.size(36.dp).background(dimColor, CircleShape),
+            modifier = Modifier.size(36.dp).background(dimColor, CircleShape)
+                .border(1.dp, color.copy(0.25f), CircleShape),
             contentAlignment = Alignment.Center
         ) { Text(emoji, fontSize = 16.sp) }
-        Text(label, fontFamily = OutfitFontFamily, fontSize = 9.sp, color = DashboardTokens.White60, textAlign = TextAlign.Center)
+        Text(label, fontFamily = OutfitFontFamily, fontSize = 9.sp, color = color.copy(0.85f), fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
     }
 }
 
@@ -1105,13 +1343,152 @@ private fun DashboardBackground() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+//  ★  NOTIFICATION PANEL
+// ═══════════════════════════════════════════════════════════════════════════
+@Composable
+private fun NotificationPanel(
+    notifications: List<NotificationItem>,
+    onDismiss: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Dim scrim
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.6f))
+                .clickable(onClick = onDismiss)
+        )
+        // Panel slides from top
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.65f)
+                .align(Alignment.TopCenter)
+            .background(
+                Brush.verticalGradient(listOf(DashboardTokens.CardBg, DashboardTokens.CardBg2)),
+                RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
+            )
+            .border(
+                1.dp,
+                Brush.verticalGradient(listOf(DashboardTokens.Rim2, DashboardTokens.Rim)),
+                RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
+            )
+            .clickable(enabled = false) {} // prevent scrim close when tapping panel
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(top = 56.dp) // below the top bar
+        ) {
+            // Panel header
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Rounded.Notifications, null, tint = DashboardTokens.RedHot, modifier = Modifier.size(18.dp))
+                    Text("Notifications", fontFamily = OutfitFontFamily, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                }
+                Box(
+                    modifier = Modifier
+                        .background(DashboardTokens.RedDim, RoundedCornerShape(8.dp))
+                        .clickable(onClick = onDismiss)
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                ) {
+                    Text("Close", fontFamily = OutfitFontFamily, fontSize = 11.sp, color = DashboardTokens.RedHot, fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            HorizontalDivider(color = DashboardTokens.Rim, thickness = 0.5.dp)
+
+            if (notifications.isEmpty()) {
+                // Sample notifications when no Firebase data
+                val samples = listOf(
+                    Triple("SOS Alert Nearby",         "A distress signal was reported 2.4 km from you.",   false),
+                    Triple("Vehicle Check Complete",   "Your vehicle diagnostics finished successfully.",     true),
+                    Triple("Road Closure — NH48",      "Traffic diversion active near Km 18. Plan ahead.",   false),
+                    Triple("Service Reminder",         "Your next oil change is due in 300 km.",             true),
+                    Triple("Community Alert",          "Police checking reported near Ahmedabad bypass.",    false)
+                )
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(samples) { (title, body, read) ->
+                        NotificationRow(title = title, body = body, read = read)
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(notifications) { notif ->
+                        NotificationRow(title = notif.title, body = notif.body, read = notif.read)
+                    }
+                }
+            }
+        }
+        } // end panel Box
+    } // end outer Box
+} // end NotificationPanel
+
+
+
+@Composable
+private fun NotificationRow(title: String, body: String, read: Boolean) {
+    Box(
+        modifier = Modifier.fillMaxWidth()
+            .background(
+                if (!read) DashboardTokens.RedDim else DashboardTokens.CardBg3,
+                RoundedCornerShape(12.dp)
+            )
+            .border(
+                1.dp,
+                if (!read) DashboardTokens.RedMid else DashboardTokens.Rim,
+                RoundedCornerShape(12.dp)
+            )
+            .padding(12.dp)
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
+            Box(
+                modifier = Modifier.size(32.dp)
+                    .background(if (!read) DashboardTokens.RedDim else DashboardTokens.CardBg2, CircleShape)
+                    .border(1.dp, if (!read) DashboardTokens.RedMid else DashboardTokens.Rim2, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    if (!read) Icons.Rounded.NotificationsActive else Icons.Rounded.Notifications,
+                    null,
+                    tint = if (!read) DashboardTokens.RedHot else DashboardTokens.White35,
+                    modifier = Modifier.size(15.dp)
+                )
+            }
+            Column(Modifier.weight(1f)) {
+                Text(title, fontFamily = OutfitFontFamily, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Spacer(Modifier.height(2.dp))
+                Text(body, fontFamily = OutfitFontFamily, fontSize = 11.sp, color = DashboardTokens.White60, lineHeight = 15.sp)
+            }
+            if (!read) {
+                Box(Modifier.size(7.dp).background(DashboardTokens.RedHot, CircleShape))
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 //  ★  TOP APP BAR  — glassmorphism + scroll-aware collapse
 // ═══════════════════════════════════════════════════════════════════════════
 @Composable
 private fun DashboardTopBar(
     initials: String, userName: String,
     unreadCount: Int, isScrolled: Boolean,
-    onLogout: () -> Unit
+    onNotificationClick: () -> Unit,
+    onProfileClick: () -> Unit
 ) {
     val inf = rememberInfiniteTransition(label = "topbar")
     val dotAlpha by inf.animateFloat(1f, 0f, infiniteRepeatable(tween(1200), RepeatMode.Restart), "dot")
@@ -1167,8 +1544,11 @@ private fun DashboardTopBar(
             }
             Spacer(Modifier.width(8.dp))
 
-            // Notification bell with badge
-            Box(modifier = Modifier.size(36.dp), contentAlignment = Alignment.Center) {
+            // Notification bell with badge — tappable
+            Box(
+                modifier = Modifier.size(36.dp).clickable(onClick = onNotificationClick),
+                contentAlignment = Alignment.Center
+            ) {
                 Box(
                     modifier = Modifier.fillMaxSize()
                         .background(DashboardTokens.CardBg2, RoundedCornerShape(10.dp))
@@ -1199,7 +1579,7 @@ private fun DashboardTopBar(
             }
             Spacer(Modifier.width(7.dp))
 
-            // Avatar with gradient ring
+            // Avatar — navigates to Profile/Settings
             Box(
                 modifier = Modifier
                     .size(36.dp)
@@ -1208,7 +1588,7 @@ private fun DashboardTopBar(
                         CircleShape
                     )
                     .border(2.dp, DashboardTokens.Rim2, CircleShape)
-                    .clickable(onClick = onLogout),
+                    .clickable(onClick = onProfileClick),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
