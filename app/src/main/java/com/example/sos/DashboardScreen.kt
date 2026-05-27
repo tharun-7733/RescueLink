@@ -47,10 +47,15 @@ import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
+import com.google.firebase.Firebase
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  DESIGN TOKENS
@@ -102,7 +107,10 @@ data class CommunityPost(
     val timeAgo: String = "",
     val content: String = "",
     val likes: Int = 0,
-    val comments: Int = 0
+    val comments: Int = 0,
+    val authorUid: String = "",
+    val likedByMe: Boolean = false,
+    val timestamp: Long = 0L
 )
 
 data class VehicleData(
@@ -147,9 +155,11 @@ class DashboardViewModel : ViewModel() {
     private val db   = try { FirebaseDatabase.getInstance() } catch (e: Exception) { null }
 
     private var incidentListener: ValueEventListener? = null
-    private var communityListener: ValueEventListener? = null
+    private var communityListener: ListenerRegistration? = null
     private var vehicleListener: ValueEventListener? = null
     private var notifListener: ValueEventListener? = null
+
+    private val firestore = try { Firebase.firestore } catch (e: Exception) { null }
 
     init {
         loadUserInfo()
@@ -209,40 +219,100 @@ class DashboardViewModel : ViewModel() {
         ref.addValueEventListener(incidentListener!!)
     }
 
-    // ── Community ─────────────────────────────────────────────────────────
+    // ── Community (Firestore real-time) ───────────────────────────────────
     private fun observeCommunityPosts() {
-        val ref = db?.reference?.child("community") ?: run {
+        val fs = firestore ?: run {
             _state.value = _state.value.copy(
                 isLoadingCommunity = false,
                 communityPosts = sampleCommunityPosts()
             )
             return
         }
-        communityListener = object : ValueEventListener {
-            override fun onDataChange(snap: DataSnapshot) {
-                val list = snap.children.mapNotNull { child ->
+        val myUid = auth.currentUser?.uid ?: ""
+        communityListener = fs.collection("community_posts")
+            .orderBy("timestamp", Query.Direction.DESCENDING)
+            .limit(30)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) {
+                    _state.value = _state.value.copy(
+                        communityPosts = sampleCommunityPosts(), isLoadingCommunity = false
+                    )
+                    return@addSnapshotListener
+                }
+                val list = snapshot.documents.mapNotNull { doc ->
                     try {
+                        val ts = doc.getLong("timestamp") ?: 0L
+                        @Suppress("UNCHECKED_CAST")
+                        val likedBy = doc.get("likedBy") as? List<String> ?: emptyList()
                         CommunityPost(
-                            id       = child.key ?: "",
-                            author   = child.child("author").getValue(String::class.java) ?: "User",
-                            initials = child.child("initials").getValue(String::class.java) ?: "U",
-                            timeAgo  = child.child("timeAgo").getValue(String::class.java) ?: "",
-                            content  = child.child("content").getValue(String::class.java) ?: "",
-                            likes    = child.child("likes").getValue(Long::class.java)?.toInt() ?: 0,
-                            comments = child.child("comments").getValue(Long::class.java)?.toInt() ?: 0
+                            id        = doc.id,
+                            author    = doc.getString("author") ?: "User",
+                            initials  = doc.getString("initials") ?: "U",
+                            content   = doc.getString("content") ?: "",
+                            likes     = doc.getLong("likes")?.toInt() ?: 0,
+                            comments  = doc.getLong("comments")?.toInt() ?: 0,
+                            authorUid = doc.getString("authorUid") ?: "",
+                            likedByMe = myUid.isNotEmpty() && likedBy.contains(myUid),
+                            timestamp = ts,
+                            timeAgo   = formatTimestamp(ts)
                         )
                     } catch (e: Exception) { null }
                 }
                 val finalList = if (list.isEmpty()) sampleCommunityPosts() else list
                 _state.value = _state.value.copy(communityPosts = finalList, isLoadingCommunity = false)
             }
-            override fun onCancelled(error: DatabaseError) {
-                _state.value = _state.value.copy(
-                    communityPosts = sampleCommunityPosts(), isLoadingCommunity = false
-                )
+    }
+
+    /** Submit a new community post to Firestore */
+    fun submitPost(content: String, onDone: (Boolean) -> Unit) {
+        val fs = firestore ?: run { onDone(false); return }
+        val user = auth.currentUser ?: run { onDone(false); return }
+        val displayName = user.displayName?.takeIf { it.isNotBlank() }
+            ?: user.email?.substringBefore("@") ?: "User"
+        val initials = displayName.trim().split(" ")
+            .filter { it.isNotEmpty() }.take(2)
+            .joinToString("") { it.first().uppercase() }
+            .ifEmpty { "U" }
+        val post = hashMapOf(
+            "author"    to displayName,
+            "initials"  to initials,
+            "authorUid" to user.uid,
+            "content"   to content.trim(),
+            "timestamp" to System.currentTimeMillis(),
+            "likes"     to 0L,
+            "comments"  to 0L,
+            "likedBy"   to emptyList<String>()
+        )
+        viewModelScope.launch {
+            try {
+                fs.collection("community_posts").add(post).await()
+                onDone(true)
+            } catch (e: Exception) {
+                onDone(false)
             }
         }
-        ref.limitToLast(20).addValueEventListener(communityListener!!)
+    }
+
+    /** Toggle like on a post — uses Firestore array union/remove */
+    fun toggleLike(post: CommunityPost) {
+        val fs = firestore ?: return
+        val uid = auth.currentUser?.uid ?: return
+        val docRef = fs.collection("community_posts").document(post.id)
+        viewModelScope.launch {
+            try {
+                val snap = docRef.get().await()
+                @Suppress("UNCHECKED_CAST")
+                val likedBy = (snap.get("likedBy") as? List<String> ?: emptyList()).toMutableList()
+                val currentLikes = snap.getLong("likes")?.toInt() ?: 0
+                if (likedBy.contains(uid)) {
+                    likedBy.remove(uid)
+                    docRef.update("likedBy", likedBy, "likes", (currentLikes - 1).coerceAtLeast(0))
+                } else {
+                    likedBy.add(uid)
+                    docRef.update("likedBy", likedBy, "likes", currentLikes + 1)
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     // ── Vehicle telemetry (real-time) ─────────────────────────────────────
@@ -323,7 +393,7 @@ class DashboardViewModel : ViewModel() {
         incidentListener?.let {
             uid?.let { id -> db?.reference?.child("incidents")?.child(id)?.removeEventListener(it) }
         }
-        communityListener?.let { db?.reference?.child("community")?.removeEventListener(it) }
+        communityListener?.remove()   // Firestore ListenerRegistration
         vehicleListener?.let {
             uid?.let { id -> db?.reference?.child("vehicles")?.child(id)?.removeEventListener(it) }
         }
@@ -380,7 +450,7 @@ fun DashboardScreen(
                 when (route) {
                     "home"      -> HomeScreen(state, listState, vm::toggleSos)
                     "map"       -> MapScreen()
-                    "community" -> CommunityScreen(state)
+                    "community" -> CommunityScreen(state, vm)
                     "chat"      -> AiChatScreen()
                     "more"      -> MoreScreen(onLogout)
                     else        -> HomeScreen(state, listState, vm::toggleSos)
@@ -1047,10 +1117,13 @@ private fun ServiceCard(name: String, icon: ImageVector, color: Color, distance:
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  COMMUNITY SCREEN
+//  COMMUNITY SCREEN  (Firestore-backed)
 // ═══════════════════════════════════════════════════════════════════════════
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CommunityScreen(state: DashboardState) {
+private fun CommunityScreen(state: DashboardState, vm: DashboardViewModel) {
+    var showPostSheet by remember { mutableStateOf(false) }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
@@ -1065,9 +1138,13 @@ private fun CommunityScreen(state: DashboardState) {
                 Box(
                     modifier = Modifier
                         .background(Brush.linearGradient(listOf(DashboardTokens.RedHot, DashboardTokens.RedDeep)), RoundedCornerShape(12.dp))
+                        .clickable { showPostSheet = true }
                         .padding(horizontal = 14.dp, vertical = 8.dp)
                 ) {
-                    Text("+ Post", fontFamily = OutfitFontFamily, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Icon(Icons.Rounded.Edit, null, tint = Color.White, modifier = Modifier.size(13.dp))
+                        Text("Post", fontFamily = OutfitFontFamily, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
                 }
             }
         }
@@ -1077,14 +1154,145 @@ private fun CommunityScreen(state: DashboardState) {
                     CircularProgressIndicator(color = DashboardTokens.RedHot, modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
                 }
             }
+        } else if (state.communityPosts.isEmpty()) {
+            item {
+                EmptyState("No posts yet", "Be the first to share an update with the community!")
+            }
         } else {
-            items(state.communityPosts) { post -> CommunityPostCard(post) }
+            items(state.communityPosts, key = { it.id }) { post ->
+                CommunityPostCard(post = post, onLike = { vm.toggleLike(post) })
+            }
+        }
+    }
+
+    // ── New-post bottom sheet ──────────────────────────────────────────────
+    if (showPostSheet) {
+        val context = LocalContext.current
+        CreatePostSheet(
+            onDismiss = { showPostSheet = false },
+            onSubmit   = { content ->
+                vm.submitPost(content) { success ->
+                    showPostSheet = false
+                    if (success) {
+                        android.widget.Toast.makeText(context, "Post shared successfully!", android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        android.widget.Toast.makeText(context, "Failed to share post. Check Firebase setup.", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CreatePostSheet(onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var text by remember { mutableStateOf("") }
+    var isPosting by remember { mutableStateOf(false) }
+    val maxChars = 280
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState       = sheetState,
+        containerColor   = DashboardTokens.CardBg,
+        tonalElevation   = 0.dp,
+        scrimColor       = Color.Black.copy(alpha = 0.65f)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Header
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(
+                    modifier = Modifier.size(38.dp)
+                        .background(DashboardTokens.RedDim, CircleShape)
+                        .border(1.dp, DashboardTokens.RedMid, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) { Icon(Icons.Rounded.Edit, null, tint = DashboardTokens.RedHot, modifier = Modifier.size(18.dp)) }
+                Column {
+                    Text("New Community Post", fontFamily = OutfitFontFamily, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                    Text("Share a road update or tip", fontFamily = OutfitFontFamily, fontSize = 11.sp, color = DashboardTokens.White60)
+                }
+            }
+
+            HorizontalDivider(color = DashboardTokens.Rim, thickness = 0.5.dp)
+
+            // Text field
+            OutlinedTextField(
+                value          = text,
+                onValueChange  = { if (it.length <= maxChars) text = it },
+                placeholder    = {
+                    Text(
+                        "What's happening on the road? Traffic, breakdowns, hazards…",
+                        fontFamily = OutfitFontFamily, fontSize = 13.sp, color = DashboardTokens.White35,
+                        lineHeight = 18.sp
+                    )
+                },
+                modifier       = Modifier.fillMaxWidth().heightIn(min = 120.dp),
+                textStyle      = TextStyle(fontFamily = OutfitFontFamily, fontSize = 13.sp, color = Color.White, lineHeight = 19.sp),
+                colors         = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor   = DashboardTokens.CardBg3,
+                    unfocusedContainerColor = DashboardTokens.CardBg3,
+                    focusedBorderColor      = DashboardTokens.RedHot,
+                    unfocusedBorderColor    = DashboardTokens.Rim2
+                ),
+                shape    = RoundedCornerShape(14.dp),
+                maxLines = 8
+            )
+
+            // Char counter + submit
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment     = Alignment.CenterVertically
+            ) {
+                Text(
+                    "${text.length} / $maxChars",
+                    fontFamily = OutfitFontFamily, fontSize = 10.sp,
+                    color = if (text.length > maxChars * 0.9) DashboardTokens.Orange else DashboardTokens.White35
+                )
+                Box(
+                    modifier = Modifier
+                        .background(
+                            if (text.isNotBlank() && !isPosting)
+                                Brush.linearGradient(listOf(DashboardTokens.RedHot, DashboardTokens.RedDeep))
+                            else
+                                Brush.linearGradient(listOf(DashboardTokens.Rim2, DashboardTokens.Rim)),
+                            RoundedCornerShape(12.dp)
+                        )
+                        .clickable(enabled = text.isNotBlank() && !isPosting) {
+                            isPosting = true
+                            onSubmit(text)
+                        }
+                        .padding(horizontal = 22.dp, vertical = 11.dp)
+                ) {
+                    if (isPosting) {
+                        CircularProgressIndicator(
+                            color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp
+                        )
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.AutoMirrored.Rounded.Send, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                            Text("Share Post", fontFamily = OutfitFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun CommunityPostCard(post: CommunityPost) {
+private fun CommunityPostCard(post: CommunityPost, onLike: () -> Unit) {
+    val likeColor by animateColorAsState(
+        if (post.likedByMe) DashboardTokens.RedHot else DashboardTokens.White35,
+        tween(200), label = "likeColor"
+    )
     Box(
         modifier = Modifier.fillMaxWidth()
             .background(DashboardTokens.CardBg, RoundedCornerShape(16.dp))
@@ -1104,14 +1312,26 @@ private fun CommunityPostCard(post: CommunityPost) {
                     Text(post.author,  fontFamily = OutfitFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     Text(post.timeAgo, fontFamily = OutfitFontFamily, fontSize = 9.sp,  color = DashboardTokens.White35)
                 }
-                LiveBadge()
             }
             Text(post.content, fontFamily = OutfitFontFamily, fontSize = 12.sp, color = DashboardTokens.WhitePure, lineHeight = 18.sp)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.ThumbUp, null, tint = DashboardTokens.RedHot, modifier = Modifier.size(13.dp))
-                Spacer(Modifier.width(3.dp))
-                Text("${post.likes}",    fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.White60)
-                Spacer(Modifier.width(14.dp))
+                // Like button — tappable, colour-animated
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(onClick = onLike)
+                        .background(if (post.likedByMe) DashboardTokens.RedDim else Color.Transparent)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        if (post.likedByMe) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                        null, tint = likeColor, modifier = Modifier.size(14.dp)
+                    )
+                    Text("${post.likes}", fontFamily = OutfitFontFamily, fontSize = 10.sp, color = likeColor, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.width(12.dp))
                 Icon(Icons.AutoMirrored.Rounded.Comment, null, tint = DashboardTokens.White35, modifier = Modifier.size(13.dp))
                 Spacer(Modifier.width(3.dp))
                 Text("${post.comments}", fontFamily = OutfitFontFamily, fontSize = 10.sp, color = DashboardTokens.White60)

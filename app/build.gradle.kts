@@ -70,6 +70,9 @@ dependencies {
     implementation(libs.accompanist.systemuicontroller)
     implementation(libs.androidx.compose.ui.text.google.fonts)
 
+    // Coroutines Firebase bridge — provides .await() on Task<T>
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+
     testImplementation(libs.junit)
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     androidTestImplementation(libs.androidx.junit)
