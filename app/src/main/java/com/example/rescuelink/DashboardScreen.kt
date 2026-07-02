@@ -101,6 +101,8 @@ object DashboardTokens {
     val BlueDim    = Color(0x1A3B82F6)
     val Purple     = Color(0xFFA855F7)
     val PurpleDim  = Color(0x1AA855F7)
+    val GlassWhite = Color(0x14FFFFFF)
+    val SosGlow    = Color(0x55E8001D)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -523,6 +525,7 @@ private fun HomeScreen(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        item { SosButton(state.sosActive, onSosTap) }
         item { VehicleStatusRow(state.vehicleData, state.isLoadingVehicle) }
         item { QuickActionsRow() }
         item { ServiceHistorySection(state.incidents, state.isLoadingIncidents) }
@@ -531,6 +534,128 @@ private fun HomeScreen(
     }
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SOS BUTTON — prominent emergency trigger on the Home screen
+// ─────────────────────────────────────────────────────────────────────────────
+@Composable
+private fun SosButton(isActive: Boolean, onTap: () -> Unit) {
+    val inf = rememberInfiniteTransition(label = "sosPulse")
+    val pulseScale by inf.animateFloat(
+        initialValue  = 1f, targetValue = 1.24f,
+        animationSpec = infiniteRepeatable(tween(950, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label         = "sosPulseScale"
+    )
+    val pulseAlpha by inf.animateFloat(
+        initialValue  = 0.45f, targetValue = 0.0f,
+        animationSpec = infiniteRepeatable(tween(950), RepeatMode.Reverse),
+        label         = "sosPulseAlpha"
+    )
+    val pressScale = remember { Animatable(1f) }
+    val scope      = rememberCoroutineScope()
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                if (isActive)
+                    Brush.linearGradient(listOf(Color(0xFF1C0008), Color(0xFF0A0003)))
+                else
+                    Brush.linearGradient(listOf(DashboardTokens.CardBg2, DashboardTokens.CardBg)),
+                RoundedCornerShape(20.dp)
+            )
+            .border(
+                1.dp,
+                if (isActive) DashboardTokens.RedHot.copy(0.55f) else DashboardTokens.Rim,
+                RoundedCornerShape(20.dp)
+            )
+            .padding(vertical = 18.dp, horizontal = 16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                if (isActive) "SOS ACTIVE — TAP TO CANCEL" else "EMERGENCY SOS",
+                fontFamily    = OutfitFontFamily,
+                fontSize      = 9.sp,
+                fontWeight    = FontWeight.ExtraBold,
+                color         = if (isActive) DashboardTokens.RedHot else DashboardTokens.White35,
+                letterSpacing = 2.sp
+            )
+            Box(contentAlignment = Alignment.Center) {
+                // Pulsing glow ring — only visible when SOS is active
+                if (isActive) {
+                    Box(
+                        modifier = Modifier
+                            .size(110.dp)
+                            .graphicsLayer { scaleX = pulseScale; scaleY = pulseScale; alpha = pulseAlpha }
+                            .background(
+                                Brush.radialGradient(listOf(DashboardTokens.SosGlow, Color.Transparent)),
+                                CircleShape
+                            )
+                    )
+                }
+                // Main SOS circle
+                Box(
+                    modifier = Modifier
+                        .size(84.dp)
+                        .graphicsLayer { scaleX = pressScale.value; scaleY = pressScale.value }
+                        .background(
+                            if (isActive)
+                                Brush.radialGradient(listOf(Color(0xFFE8001D), Color(0xFF8B0000)))
+                            else
+                                Brush.radialGradient(listOf(DashboardTokens.RedDim, DashboardTokens.CardBg3)),
+                            CircleShape
+                        )
+                        .border(
+                            width  = if (isActive) 2.5.dp else 1.5.dp,
+                            color  = if (isActive) DashboardTokens.RedHot else DashboardTokens.RedHot.copy(0.4f),
+                            shape  = CircleShape
+                        )
+                        .clickable {
+                            scope.launch {
+                                pressScale.animateTo(0.86f, tween(80))
+                                pressScale.animateTo(
+                                    1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                                )
+                            }
+                            onTap()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Icon(
+                            Icons.Rounded.Warning,
+                            contentDescription = null,
+                            tint     = if (isActive) Color.White else DashboardTokens.RedHot,
+                            modifier = Modifier.size(26.dp)
+                        )
+                        Text(
+                            "SOS",
+                            fontFamily    = BebasNeueFontFamily,
+                            fontSize      = 17.sp,
+                            letterSpacing = 2.sp,
+                            color         = if (isActive) Color.White else DashboardTokens.RedHot
+                        )
+                    }
+                }
+            }
+            Text(
+                if (isActive) "Emergency services have been notified"
+                else "Tap to activate emergency protocol",
+                fontFamily = OutfitFontFamily,
+                fontSize   = 10.sp,
+                color      = DashboardTokens.White35,
+                textAlign  = TextAlign.Center
+            )
+        }
+    }
+}
 
 @Composable
 private fun StatusPill(emoji: String, label: String, color: Color, dimColor: Color) {
@@ -662,14 +787,19 @@ private fun VehicleMetricCard(
         Text(value, fontFamily = OutfitFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = TextAlign.Center)
         Text(label, fontFamily = OutfitFontFamily, fontSize = 9.sp, color = DashboardTokens.White35)
 
-        // Progress bar
+        // Progress bar — animated fill
+        val animatedProgress by animateFloatAsState(
+            targetValue   = progress.coerceIn(0f, 1f),
+            animationSpec = tween(800, easing = FastOutSlowInEasing),
+            label         = "metricProgress"
+        )
         Box(
             modifier = Modifier.fillMaxWidth().height(3.dp)
                 .background(DashboardTokens.Rim2, RoundedCornerShape(100.dp))
         ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(progress.coerceIn(0f, 1f))
+                    .fillMaxWidth(animatedProgress)
                     .fillMaxHeight()
                     .background(Brush.horizontalGradient(listOf(color.copy(0.6f), color)), RoundedCornerShape(100.dp))
             )
@@ -938,8 +1068,11 @@ private fun QuickActionCard(emoji: String, label: String, color: Color, dimColor
         modifier = Modifier
             .width(68.dp)
             .graphicsLayer { scaleX = scale.value; scaleY = scale.value }
-            .background(DashboardTokens.CardBg, RoundedCornerShape(14.dp))
-            .border(1.dp, color.copy(0.3f), RoundedCornerShape(14.dp))
+            .background(
+                Brush.verticalGradient(listOf(color.copy(0.10f), DashboardTokens.CardBg)),
+                RoundedCornerShape(14.dp)
+            )
+            .border(1.dp, color.copy(0.38f), RoundedCornerShape(14.dp))
             .clickable {
                 scope.launch {
                     scale.animateTo(0.90f, tween(80))
@@ -1006,7 +1139,13 @@ private fun HistoryRow(incident: Incident) {
     }
     val isLive = incident.status == "active"
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(8.dp).background(dotColor, CircleShape))
+        // Left accent bar — replaces dot for a more premium look
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .height(36.dp)
+                .background(dotColor, RoundedCornerShape(100.dp))
+        )
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(incident.title, fontFamily = OutfitFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1543,6 +1682,8 @@ private fun CommunityPostCard(post: CommunityPost, onLike: () -> Unit) {
         if (post.likedByMe) DashboardTokens.RedHot else DashboardTokens.White35,
         tween(200), label = "likeColor"
     )
+    val likeScale = remember { Animatable(1f) }
+    val likeScope = rememberCoroutineScope()
     Box(
         modifier = Modifier.fillMaxWidth()
             .background(DashboardTokens.CardBg, RoundedCornerShape(16.dp))
@@ -1565,11 +1706,19 @@ private fun CommunityPostCard(post: CommunityPost, onLike: () -> Unit) {
             }
             Text(post.content, fontFamily = OutfitFontFamily, fontSize = 12.sp, color = DashboardTokens.WhitePure, lineHeight = 18.sp)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Like button — tappable, colour-animated
+                // Like button — tappable, colour-animated, scale-pops on tap
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable(onClick = onLike)
+                        .clickable {
+                            likeScope.launch {
+                                likeScale.animateTo(1.40f, tween(100))
+                                likeScale.animateTo(
+                                    1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                                )
+                            }
+                            onLike()
+                        }
                         .background(if (post.likedByMe) DashboardTokens.RedDim else Color.Transparent)
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1577,7 +1726,11 @@ private fun CommunityPostCard(post: CommunityPost, onLike: () -> Unit) {
                 ) {
                     Icon(
                         if (post.likedByMe) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                        null, tint = likeColor, modifier = Modifier.size(14.dp)
+                        null,
+                        tint     = likeColor,
+                        modifier = Modifier
+                            .size(14.dp)
+                            .graphicsLayer { scaleX = likeScale.value; scaleY = likeScale.value }
                     )
                     Text("${post.likes}", fontFamily = OutfitFontFamily, fontSize = 10.sp, color = likeColor, fontWeight = FontWeight.SemiBold)
                 }
@@ -1742,9 +1895,9 @@ private fun AiChatScreen(chatVm: ChatViewModel = viewModel()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // Animated TARS avatar
                 Box(contentAlignment = Alignment.Center) {
-                    // Outer glow ring
+                    // Outer glow ring — enlarged for premium visual impact
                     Box(
-                        modifier = Modifier.size(52.dp).graphicsLayer { alpha = pulseAlpha * 0.4f }
+                        modifier = Modifier.size(62.dp).graphicsLayer { alpha = pulseAlpha * 0.65f }
                             .background(Brush.radialGradient(listOf(DashboardTokens.RedHot, Color.Transparent)), CircleShape)
                     )
                     Box(
@@ -2457,6 +2610,18 @@ private fun DashboardBottomNav(currentRoute: String, onRoute: (String) -> Unit) 
                             .graphicsLayer { scaleX = scale; scaleY = scale }
                             .clip(RoundedCornerShape(100.dp))
                             .background(if (selected) DashboardTokens.RedDim else Color.Transparent)
+                            .drawBehind {
+                                // Thin red indicator pill at the top of the active nav item
+                                if (selected) {
+                                    val barW = size.width * 0.44f
+                                    drawRoundRect(
+                                        color        = Color(0xFFE8001D),
+                                        topLeft      = androidx.compose.ui.geometry.Offset((size.width - barW) / 2f, 2.dp.toPx()),
+                                        size         = androidx.compose.ui.geometry.Size(barW, 2.5.dp.toPx()),
+                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
+                                    )
+                                }
+                            }
                             .clickable { onRoute(route) }
                             .padding(vertical = 7.dp, horizontal = 4.dp),
                         contentAlignment = Alignment.Center
