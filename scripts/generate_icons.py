@@ -19,7 +19,9 @@ DENSITIES = {
     "mipmap-xhdpi":   96,
     "mipmap-xxhdpi":  144,
     "mipmap-xxxhdpi": 192,
+    "mipmap-hddpi" : 253,
 }
+
 
 def make_icon(src_img: Image.Image, size: int) -> Image.Image:
     """Create a square PNG icon: black background + centered, scaled logo."""
